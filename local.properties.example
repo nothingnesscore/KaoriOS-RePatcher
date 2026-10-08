@@ -1,0 +1,4 @@
+# Enable the :app module by pointing this at an Android SDK with platform 34.
+# The :engine module builds without it.
+#
+# sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kaorios Patcher</string>
+
+    <!-- Navigation -->
+    <string name="tab_patch">Patch</string>
+    <string name="tab_output">Output</string>
+    <string name="tab_manual">Manual Patching</string>
+    <!-- Bar label only: "Manual Patching" wraps to two lines in a 77dp tab slot, which pushes
+         its icon out of line with the single-word neighbours. The page title keeps the full text. -->
+    <string name="tab_manual_short">Manual</string>
+
+    <!-- Page titles -->
+    <string name="page_patch_title">Kaorios Patcher</string>
+    <string name="page_patch_subtitle">Android 13-17 smali patcher with on-device verification</string>
+    <string name="page_module_title">Output</string>
+    <string name="page_module_subtitle">A flashable zip that overlays the patched artifacts on boot.</string>
+    <string name="page_manual_subtitle">Choose the system jars and target OS yourself.</string>
+    <string name="badge_coming_soon">Coming soon</string>
+    <string name="action_back">Back</string>
+    <string name="page_settings_title">Settings</string>
+
+    <!-- Patch page sections -->
+    <string name="section_device">Device</string>
+    <string name="section_howto">How to use</string>
+    <string name="howto_step_1">1. Grant All files access, then tap Pull to fetch the system jars.</string>
+    <string name="howto_step_2">2. Leave Main patch on — the recommended set — and switch any Additional patches you want.</string>
+    <string name="howto_step_3">3. Tap Patch; Status and the Patch log show every step while it runs.</string>
+    <string name="howto_step_4">4. When it finishes, open the Output tab — the built module and its flash result appear there.</string>
+    <string name="howto_step_5">5. Tap Install module, then reboot so the patched jars mount.</string>
+    <string name="section_patches_main">Main patch</string>
+    <string name="section_patches_extra">Additional patches</string>
+    <string name="section_vfs">VFS tier</string>
+    <string name="section_storage_access">Storage access</string>
+    <string name="storage_access_summary">Android 17 blocks Download/ without All files access.</string>
+    <string name="storage_access_action">Grant All files access</string>
+    <string name="section_actions">Actions</string>
+    <string name="section_status">Status</string>
+    <string name="section_targets">Targets</string>
+
+    <!-- Labels -->
+    <string name="label_device">Device</string>
+    <string name="label_arch">Architecture</string>
+    <string name="label_android">Android</string>
+    <string name="label_rom">ROM</string>
+    <string name="label_root">Root</string>
+    <string name="label_patcher">Patcher</string>
+
+    <!-- Values -->
+    <string name="value_reading">Reading device properties…</string>
+    <string name="value_supported_yes">yes</string>
+    <string name="value_supported_no">outside 13–17</string>
+    <string name="engine_version">Kaorios engine v1.0.0 (A13–17)</string>
+
+    <!-- Root flavours -->
+    <string name="root_none">None detected</string>
+    <string name="root_kernelsu">KernelSU</string>
+    <string name="root_sukisu">SukiSU</string>
+    <string name="root_magisk">Magisk</string>
+
+    <!-- ROM families -->
+    <string name="rom_hos">HOS</string>
+    <string name="rom_aosp">AOSP</string>
+
+    <!-- Patches -->
+    <string name="patch_main_title">KaoriOS</string>
+    <string name="patch_main_summary">Hook + Build spoof, A17 only. Included in every run.</string>
+    <string name="patch_main_summary_hooks">Hooks only — the Build spoof is A17-only and this device is pre-17. Included in every run.</string>
+    <string name="patch_corepatch_title">CorePatch / DSV</string>
+    <string name="patch_corepatch_summary">Disable APK signature verification (guide optional §3); ships the patched miui-services.jar.</string>
+    <string name="patch_corepatch_summary_nojar">Disable APK signature verification (guide §1-§2); this ROM has no miui-services.jar, so §3 does not apply.</string>
+    <string name="patch_flagsecure_title">Disable FLAG_SECURE</string>
+    <string name="patch_flagsecure_summary">Drop the secure-window flag so screenshots and screen recording are allowed.</string>
+    <string name="patch_hideadb_title">Hide developer / ADB status</string>
+    <string name="patch_hideadb_summary">Report Developer options and USB debugging as off to other apps (guide optional §1).</string>
+
+    <!-- VFS -->
+    <string name="vfs_title">Serve through hybridmount</string>
+    <string name="vfs_summary">Serve patched files through hybridmount instead of writing to /system</string>
+    <string name="vfs_kernel_warning">Kernel %1$s is not a recognised GKI build; the module falls back to a /system overlay</string>
+
+    <!-- Actions -->
+    <string name="action_refresh">Refresh</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_pull">Pull system jars</string>
+    <string name="action_patch">Patch and build module</string>
+    <string name="root_required">Install SukiSU to enable pulling and flashing.</string>
+
+    <!-- Pipeline status -->
+    <string name="status_idle">Idle</string>
+    <string name="status_pulling">Pulling system jars</string>
+    <string name="status_syncing">Syncing release assets</string>
+    <string name="status_disassembling">Disassembling</string>
+    <string name="status_patching">Patching</string>
+    <string name="status_reassembling">Reassembling</string>
+    <string name="status_building_module">Building module</string>
+    <string name="status_done">Module ready</string>
+    <string name="status_failed">Failed</string>
+
+    <!-- Per-target status -->
+    <string name="target_patched">Patched</string>
+    <string name="target_already_patched">Already patched</string>
+    <string name="target_failed">Not patched</string>
+
+    <!-- Module page -->
+    <string name="module_contents_title">Contents</string>
+    <string name="module_output_title">Output</string>
+    <string name="module_none_title">No module built yet</string>
+    <string name="module_none_summary">Run a patch from the Patch tab to produce one.</string>
+    <string name="module_ready_title">Ready to flash</string>
+    <string name="module_ready_summary">Install it below, or copy it to a manager yourself and reboot.</string>
+    <string name="module_flash_title">Install</string>
+    <string name="module_flash_idle">Hand the zip to the root manager with ksud module install.</string>
+    <string name="module_flash_action">Install module</string>
+    <string name="module_flash_running">Installing…</string>
+    <string name="module_flash_done">Module installed</string>
+    <string name="module_flash_reboot">Reboot to let the overlay mount.</string>
+    <string name="module_flash_failed">Install failed: %1$s</string>
+    <string name="module_flash_root_missing">Root is required to install a module.</string>
+    <string name="module_runtime_title">KaoriOS runtime</string>
+    <string name="module_runtime_missing_title">Runtime not bundled</string>
+    <string name="module_runtime_missing_summary">The hooks call KaoriosHook, which only resolves once the runtime dex is merged into framework.jar. Push kaorios.dex to Download/ and run again — not safe to flash until then.</string>
+    <string name="module_runtime_bundled_title">Merged into framework.jar (%1$d classes)</string>
+    <string name="module_failed_title">Not patched</string>
+    <string name="module_failed_summary">These were left untouched because the layout was not recognised.</string>
+
+    <!-- Settings page -->
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_system_summary">Match the device light or dark mode</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_light_summary">Ignore the system setting</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_dark_summary">Ignore the system setting</string>
+    <string name="settings_dynamic_color">Dynamic colour</string>
+    <string name="settings_dynamic_color_summary">Derive the palette from the wallpaper</string>
+    <string name="settings_liquid_glass">Floating glass bar</string>
+    <string name="settings_liquid_glass_summary">The glass pill and its swipe bubble</string>
+    <string name="settings_edge_blur">Edge gradient blur</string>
+    <string name="settings_edge_blur_summary">Soften the top and the bottom of the page</string>
+    <string name="settings_amoled_black">AMOLED pure black</string>
+    <string name="settings_amoled_black_summary">Paint backgrounds pure black on OLED displays</string>
+    <string name="settings_workspace_title">Workspace</string>
+    <string name="settings_workspace_size">Pulled jars and disassembled trees</string>
+    <string name="settings_workspace_summary">%1$s MB — tap to clear</string>
+    <string name="settings_environment_title">Environment</string>
+
+    <!-- Manual patching (view-only placeholder) -->
+    <string name="manual_jars_section">System jars</string>
+    <string name="manual_jar_framework">framework.jar</string>
+    <string name="manual_jar_services">services.jar</string>
+    <string name="manual_jar_miui_services">miui-services.jar</string>
+    <string name="manual_jar_summary">Not selected</string>
+    <string name="manual_target_section">Target</string>
+    <string name="manual_os_type">OS type</string>
+    <string name="manual_os_value">HyperOS</string>
+    <string name="manual_android_version">Android version</string>
+    <string name="manual_android_value">Android 13-17</string>
+
+    <!-- Patch log -->
+    <string name="section_patch_log">Patch log</string>
+    <string name="patch_log_empty">Nothing logged yet — run a pull or a patch and it lands here.</string>
+    <string name="patch_log_export">Export to Download</string>
+
+    <!-- Snackbar -->
+    <string name="snackbar_module_ready">Module ready</string>
+
+    <!-- Confirmation dialogs -->
+    <string name="dialog_flash_title">Install module?</string>
+    <string name="dialog_flash_body">Hands the built zip to ksud for installation. Reboot afterwards to let the overlay mount.</string>
+    <string name="dialog_clear_title">Clear workspace?</string>
+    <string name="dialog_clear_body">Deletes the pulled jars and every disassembled tree. A fresh pull is needed before the next patch.</string>
+    <string name="dialog_confirm_install">Install</string>
+    <string name="dialog_confirm_clear">Clear</string>
+    <string name="dialog_cancel">Cancel</string>
+</resources>

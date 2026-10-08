@@ -1,0 +1,14 @@
+.class public Landroid/app/Instrumentation;
+.super Ljava/lang/Object;
+
+.method public newApplication(Ljava/lang/Class;Landroid/content/Context;)Landroid/app/Application;
+    .registers 20
+    const/4 v0, 0x0
+    return-object v0
+.end method
+
+.method public newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;
+    .registers 20
+    const/4 v0, 0x0
+    return-object v0
+.end method

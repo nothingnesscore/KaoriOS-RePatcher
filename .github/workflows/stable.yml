@@ -1,0 +1,127 @@
+name: Stable release
+
+# Stable track. Triggered by hand from the Actions tab: run the checkpoint (full Gradle
+# build + engine test suite), refuse to proceed if gradle.properties still names an
+# already-tagged version (so tag, versionName and versionCode never drift), then publish
+# a signed, non-prerelease release whose notes invite the community to test and report.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
+jobs:
+  stable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android platform
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | sort | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Write local.properties
+        run: echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" > local.properties
+
+      - name: Read version from gradle.properties
+        id: ver
+        run: |
+          echo "version=$(grep '^appVersionName=' gradle.properties | cut -d= -f2 | tr -d '\r\n')" >> "$GITHUB_OUTPUT"
+          echo "code=$(grep '^appVersionCode=' gradle.properties | cut -d= -f2 | tr -d '\r\n')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkpoint - version must be new
+        env:
+          BASE: ${{ steps.ver.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${BASE}" > /dev/null 2>&1; then
+            echo "::error::v${BASE} is already tagged. Bump appVersionName (and appVersionCode) in gradle.properties first."
+            exit 1
+          fi
+
+      - name: Checkpoint - full build and test suite must be green
+        run: ./gradlew build :engine:jvmTest --console=plain
+
+      - name: Require signing secrets
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          KS_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$KS_B64" ] && missing="$missing RELEASE_KEYSTORE_B64"
+          [ -z "$KS_PASSWORD" ] && missing="$missing RELEASE_KEYSTORE_PASSWORD"
+          [ -z "$KS_ALIAS" ] && missing="$missing RELEASE_KEY_ALIAS"
+          [ -z "$KS_KEY_PASSWORD" ] && missing="$missing RELEASE_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::A stable release must be signed. Missing repository secrets:$missing"
+            exit 1
+          fi
+
+      - name: Build signed release APK
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          KS_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          BASE: ${{ steps.ver.outputs.version }}
+        run: |
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          ./gradlew :app:assembleRelease \
+            "-PappVersionName=${BASE}" \
+            "-Pks.storeFile=$RUNNER_TEMP/release.jks" \
+            "-Pks.storePassword=$KS_PASSWORD" \
+            "-Pks.keyAlias=$KS_ALIAS" \
+            "-Pks.keyPassword=$KS_KEY_PASSWORD" \
+            --console=plain
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+          cp "$APK" "Kaorios-RePatcher-${BASE}.apk"
+          echo "SHA256=$(sha256sum "Kaorios-RePatcher-${BASE}.apk" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.ver.outputs.version }}
+          CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          cat > notes.md <<EOF
+          ## Kaorios RePatcher ${BASE}
+
+          Built from main after the stability checkpoint: the full Gradle build and the
+          engine test suite had to pass on this very run before the APK was produced.
+
+          **Version:** ${BASE} (versionCode ${CODE})
+          **SHA-256:** ${SHA256}
+
+          ### Install
+          Install the APK, grant root when prompted, then tap Patch and install the
+          module from the Module tab. The module verifies your ROM digests at flash
+          time and aborts on a mismatch - a wrong-ROM flash is the failure this guard
+          exists to prevent.
+
+          ### Help us keep it stable
+          No release survives without testers. If something breaks on your setup, open
+          an issue with what you were doing, your Android/HyperOS version family, and
+          the matching lines from "adb logcat -s KaoriosPatcher". Want to test before
+          a stable goes out? Run the **Beta prerelease** workflow from the Actions tab
+          (or grab the newest prerelease) and report early - beta bugs fixed fast are
+          stable bugs that never happen.
+          EOF
+          gh release create "v${BASE}" \
+            --title "Kaorios RePatcher ${BASE}" \
+            --notes-file notes.md \
+            "Kaorios-RePatcher-${BASE}.apk"

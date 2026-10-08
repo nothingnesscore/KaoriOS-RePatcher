@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher backdrop: a deep-space radial glow behind the KaoriOS planet. -->
+    <color name="ic_launcher_glow">#24395F</color>
+    <color name="ic_launcher_deep">#090E17</color>
+
+    <!-- KaoriOS Toolbox mark. -->
+    <color name="kaori_planet">#BFE7FB</color>
+    <color name="kaori_planet_shade">#9CCBEC</color>
+    <color name="kaori_planet_glint">#DDF3FE</color>
+    <color name="kaori_outline">#253A55</color>
+    <color name="kaori_ring">#EF9484</color>
+
+    <!-- Gel shading: the sphere lit from the upper left, the ring stepping warm at its
+         highlight and deeper where it passes behind the limb. Both are stops on the same
+         VectorDrawable gradients in ic_launcher_foreground. -->
+    <color name="kaori_planet_lit">#F6FCFF</color>
+    <color name="kaori_planet_mid">#BFE7FB</color>
+    <color name="kaori_planet_deep">#6AA3DA</color>
+    <color name="kaori_ring_lit">#F7B4A6</color>
+    <color name="kaori_ring_deep">#DF7A67</color>
+    <!-- AARRGGBB: alpha falls off with the gradient so the glint and shade read as light
+         landing on the sphere rather than as two flat shapes. -->
+    <color name="kaori_specular">#CCFFFFFF</color>
+    <color name="kaori_specular_edge">#00FFFFFF</color>
+    <color name="kaori_shade_near">#009CCBEC</color>
+    <color name="kaori_shade_far">#995786BF</color>
+    <color name="kaori_glint_near">#E6F6FE</color>
+    <color name="kaori_glint_far">#00E6F6FE</color>
+    <color name="kaori_contact">#660A1424</color>
+    <color name="kaori_contact_edge">#000A1424</color>
+</resources>

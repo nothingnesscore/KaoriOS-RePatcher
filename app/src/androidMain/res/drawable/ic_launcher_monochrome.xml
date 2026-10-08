@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon glyph: the same mark reduced to a single silhouette. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFF">
+
+    <path
+        android:pathData="M25.47,65.27 C21.14,51.96 78.21,33.41 82.53,46.73"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M33,56 a21,21 0 1,0 42,0 a21,21 0 1,0 -42,0 z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M25.47,65.27 C29.79,78.59 86.86,60.04 82.53,46.73"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M81,42.3 L77.75,47.93 L71.25,47.93 L68,42.3 L71.25,36.67 L77.75,36.67 Z M71.5,42.3 A3,3 0 1,1 77.5,42.3 A3,3 0 1,1 71.5,42.3 Z"
+        android:fillType="evenOdd"
+        android:fillColor="#FFFFFF" />
+</vector>

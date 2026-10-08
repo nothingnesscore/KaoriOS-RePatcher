@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Reads Download/kaorios.dex and writes the finished module to Download/ so it can be flashed
+      from the file manager. Scoped storage blocks direct File access from API 30 and
+      requestLegacyExternalStorage is ignored there, so All files access is the only way to keep
+      the rest of the app on java.io.File.
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!--
+      Pulls the latest Kaorios-Toolbox release assets (runtime dex + manager APK) into the
+      workspace on each patch run; without it the run still works from the offline cache.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Predictive back: hands back gestures their progress to the app (Android 13+), which the
+      settings push animates against. Without it back still works, just without the gesture.
+    -->
+    <application
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.KaoriosPatcher">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.KaoriosPatcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

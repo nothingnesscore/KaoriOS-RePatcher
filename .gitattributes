@@ -1,0 +1,12 @@
+# Byte-exactness matters: smali fixtures and oracle expectations are compared
+# byte-for-byte by the engine tests, so text is checked out as LF everywhere.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.sh  text eol=lf
+
+*.jar binary
+*.apk binary
+*.dex binary
+*.png binary
+*.p12 binary
