@@ -54,7 +54,8 @@ Desktop round-trip against already-pulled jars — the same code path the app ru
 .\gradlew.bat :engine:runStringProbe "-PprobeArgs=<archive> <dex> <descriptor> [method]"
 ```
 
-`:app` is included only when `local.properties` contains `sdk.dir=` (`settings.gradle.kts`).
+`:app` is included when `local.properties` contains `sdk.dir=` or `ANDROID_HOME` /
+`ANDROID_SDK_ROOT` is set (`settings.gradle.kts`).
 
 `runCli` takes **absolute** paths only — a relative `<pulled-dir>` resolves against the Gradle
 daemon's working directory and silently pulls nothing. `FULL` is the whole port (hooks + Build +
@@ -62,6 +63,24 @@ daemon's working directory and silently pulls nothing. `FULL` is the whole port 
 launched detached (`Start-Process ... -File run.ps1`) with stdout redirected and a `.done`
 sentinel — the MCP shell call returns before Gradle finishes, and re-launching duplicates the
 build.
+
+## Releases
+
+Two manual GitHub Actions workflows in `.github/workflows/`, both checkpointed on
+`./gradlew build :engine:jvmTest`:
+
+- `stable.yml` — refuses to run if `v<appVersionName>` is already tagged (bump
+  `gradle.properties` first), requires the signing secrets, publishes a normal release
+  whose notes invite testers to report problems.
+- `beta.yml` — publishes `v<appVersionName>-beta.<run>` as a prerelease with a
+  work-in-progress warning; debug-signed when the repo has no signing secrets.
+
+`gradle.properties` (`appVersionName` / `appVersionCode`) is the single source of truth
+both read; bump it after every stable release. Signing resolves from `-Pks.*` Gradle
+properties (CI: secrets `RELEASE_KEYSTORE_B64`, `RELEASE_KEYSTORE_PASSWORD`,
+`RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) with the gitignored `keystore.properties`
+as the local fallback. CI finds the SDK through `ANDROID_HOME`/`ANDROID_SDK_ROOT`
+(`settings.gradle.kts`) and installs `platforms;android-37.0` + `build-tools;37.0.0`.
 
 ## Architecture
 
