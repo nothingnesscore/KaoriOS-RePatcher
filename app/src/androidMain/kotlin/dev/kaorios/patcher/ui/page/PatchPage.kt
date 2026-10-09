@@ -23,6 +23,8 @@ import dev.kaorios.patcher.device.RootFlavour
 import dev.kaorios.patcher.device.RootStatus
 import dev.kaorios.patcher.pipeline.PatchStep
 import dev.kaorios.patcher.pipeline.TargetOutcome
+import dev.kaorios.patcher.pipeline.count
+import dev.kaorios.patcher.pipeline.progress
 import dev.kaorios.patcher.ui.PatchUiState
 import dev.kaorios.patcher.ui.component.InfoRow
 import dev.kaorios.patcher.ui.component.MonoText
@@ -34,7 +36,7 @@ import dev.kaorios.patcher.ui.component.StatusTone
 import dev.kaorios.patcher.ui.component.resolve
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Delete
@@ -382,8 +384,12 @@ private fun StatusSection(step: PatchStep, workspaceBytes: Long) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            val label = stringResource(step.labelRes())
+            val span = step.count
             Text(
-                text = stringResource(step.labelRes()),
+                text = span?.let { (done, total) ->
+                    stringResource(R.string.status_count, label, done, total)
+                } ?: label,
                 modifier = Modifier.weight(1f),
                 style = MiuixTheme.textStyles.body1,
             )
@@ -394,7 +400,10 @@ private fun StatusSection(step: PatchStep, workspaceBytes: Long) {
             )
         }
         if (step.isRunning()) {
-            InfiniteProgressIndicator(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            LinearProgressIndicator(
+                progress = step.progress,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
         when (step) {
             is PatchStep.Done -> MonoText(

@@ -188,7 +188,7 @@ class PatchViewModel(
     /** Pulls the artifacts the engine needs, as root. */
     fun pullArtifacts() {
         viewModelScope.launch {
-            _state.update { it.copy(step = PatchStep.Pulling) }
+            _state.update { it.copy(step = PatchStep.Pulling(0, ARTIFACT_PATHS.size)) }
             try {
                 withContext(Dispatchers.IO) {
                     val root = client.rootStatus()
@@ -197,7 +197,9 @@ class PatchViewModel(
                         error("No root manager available; install SukiSU first")
                     }
                     val artifacts = ARTIFACT_PATHS.entries.map { it.key to it.value }
-                    for ((name, path) in artifacts) {
+                    for ((index, artifact) in artifacts.withIndex()) {
+                        val (name, path) = artifact
+                        _state.update { it.copy(step = PatchStep.Pulling(index, artifacts.size)) }
                         val target = workspace.pulledFile(name)
                         if (!client.fileExists(path)) {
                             if (name != MIUI_SERVICES_JAR) {
@@ -336,7 +338,7 @@ class PatchViewModel(
             // otherwise. The pushed Download/ dex remains the last resort when both fail.
             val assets = withContext(Dispatchers.IO) { releaseSync.sync() }
             val runtime = assets.runtimeDex ?: withContext(Dispatchers.IO) { findRuntimeDex() }
-            _state.update { it.copy(step = PatchStep.Disassembling) }
+            _state.update { it.copy(step = PatchStep.Disassembling()) }
             // Snapshotted once: the run is the selection the user pressed, even if a switch were
             // to move underneath it while the round trip is running.
             val selection = _state.value.selection

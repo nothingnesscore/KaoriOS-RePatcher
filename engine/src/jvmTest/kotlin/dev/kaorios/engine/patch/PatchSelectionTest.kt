@@ -139,4 +139,45 @@ class PatchSelectionTest {
             )
         }
     }
+
+    /**
+     * App Hide travels with the hook set — `ComputerEngine`'s ForCaller insert plus the
+     * `AppsFilterBase` template — and ADB Hide behind its own switch, and neither is version
+     * gated: every Android the guide covers (13-17) must select and disassemble all three
+     * classes. The ROM family never reaches [PatchSelection] at all, so HOS and AOSP read the
+     * same targets; a shape the ROM does not carry degrades to NOT_TARGET inside the patcher,
+     * never to a silently dropped selection.
+     */
+    @Test
+    fun `App Hide and ADB Hide are selected on every supported Android`() {
+        for (major in 13..17) {
+            val selection = PatchSelection.forAndroid(major, hideDevStatus = true)
+            val targets = PatchEngine.targets(selection).keys
+            val files = PatchEngine.disassemblyFiles(selection)
+            for (name in listOf("ComputerEngine.smali", "AppsFilterBase.smali", "Settings\$NameValueCache.smali")) {
+                assertContains(targets, name, "Android $major lost the $name target")
+                assertContains(files, name, "Android $major does not disassemble $name")
+            }
+            assertTrue(
+                selection.needsRuntime,
+                "Android $major injects KaoriosHook call sites without requiring the runtime",
+            )
+        }
+    }
+
+    /** Without the switch the ADB-hide class never enters a run, on any version. */
+    @Test
+    fun `the ADB-hide class stays out of every selection without its switch`() {
+        for (major in 13..17) {
+            val selection = PatchSelection.forAndroid(major)
+            assertFalse(
+                "Settings\$NameValueCache.smali" in PatchEngine.targets(selection).keys,
+                "Android $major patches the ADB-hide class without the switch",
+            )
+            assertFalse(
+                "Settings\$NameValueCache.smali" in PatchEngine.disassemblyFiles(selection),
+                "Android $major disassembles the ADB-hide class without the switch",
+            )
+        }
+    }
 }

@@ -28,6 +28,7 @@ object PatchLog {
     private val tail = ArrayDeque<String>()
     private var sink: FileWriter? = null
     private var listener: ((List<String>) -> Unit)? = null
+    private var lastStepName: String? = null
 
     /**
      * Mirrors every subsequent line into [file], appending, so one file covers the whole session
@@ -47,7 +48,21 @@ object PatchLog {
     /** Writes a run separator, so several runs in one file stay readable. */
     fun marker(message: String) = emit("=", message)
 
-    fun step(step: PatchStep) = emit("I", "step -> ${step::class.simpleName}")
+    /**
+     * Logs the *transition* only: the determinate phases re-emit their step once per completed
+     * unit (disassembly per jar, patching per target), and thirty identical `step -> Patching`
+     * lines would bury the transitions a reader of `patch.log` is looking for. The per-unit
+     * detail still reaches the UI through `onProgress`; target detail stays in `target()`.
+     */
+    fun step(step: PatchStep) {
+        val name = step::class.simpleName
+        val changed = synchronized(lock) {
+            val fresh = name != lastStepName
+            lastStepName = name
+            fresh
+        }
+        if (changed) emit("I", "step -> $name")
+    }
 
     /** One target, exactly as guide §5 defines the vocabulary. [path] is relative to the tree. */
     fun target(status: PatchStatus, path: String, detail: String?) =
@@ -63,6 +78,7 @@ object PatchLog {
     fun reset() {
         synchronized(lock) {
             tail.clear()
+            lastStepName = null
             listener?.invoke(emptyList())
         }
     }
@@ -106,15 +122,57 @@ object PatchLog {
 /** Progress reported as the pipeline advances; the UI renders this directly. */
 sealed interface PatchStep {
     data object Idle : PatchStep
-    data object Pulling : PatchStep
+    data class Pulling(val done: Int = 0, val total: Int = 0) : PatchStep
     data object Syncing : PatchStep
-    data object Disassembling : PatchStep
-    data object Patching : PatchStep
-    data object Reassembling : PatchStep
+    data class Disassembling(val done: Int = 0, val total: Int = 0) : PatchStep
+    data class Patching(val done: Int = 0, val total: Int = 0) : PatchStep
+    data class Reassembling(val done: Int = 0, val total: Int = 0) : PatchStep
     data object BuildingModule : PatchStep
     data class Done(val moduleZip: File) : PatchStep
     data class Failed(val message: String) : PatchStep
 }
+
+/**
+ * `done/total` for the phases that measure themselves, null for the ones with no span.
+ *
+ * [PatchStep.done] counts *completed* units — each unit emits its step before the next one
+ * starts — so the pair only ever advances and the status row can render it verbatim.
+ */
+val PatchStep.count: Pair<Int, Int>?
+    get() = when (this) {
+        is PatchStep.Pulling -> done to total
+        is PatchStep.Disassembling -> done to total
+        is PatchStep.Patching -> done to total
+        is PatchStep.Reassembling -> done to total
+        else -> null
+    }?.takeIf { (_, total) -> total > 0 }
+
+/**
+ * Determinate 0..1 while a phase runs, weighted per phase so the bar advances once per
+ * completed unit inside a phase and never retracts across a phase change (each phase's base
+ * sits above the value the previous phase can reach). Null means *indeterminate* to Miuix:
+ * for the states the bar never renders it simply stays hidden (`isRunning` gates it), and for
+ * `Syncing` — release-asset network I/O with no measurable span — it animates instead of
+ * pretending to know.
+ */
+val PatchStep.progress: Float?
+    get() {
+        fun span(base: Float, width: Float, count: Pair<Int, Int>?): Float {
+            if (count == null) return base
+            val (done, total) = count
+            if (total <= 0) return base
+            return base + width * (done.toFloat() / total).coerceIn(0f, 1f)
+        }
+        return when (this) {
+            is PatchStep.Idle, is PatchStep.Done, is PatchStep.Failed -> null
+            is PatchStep.Pulling -> span(0f, 0.10f, count)
+            is PatchStep.Syncing -> null
+            is PatchStep.Disassembling -> span(0.10f, 0.15f, count)
+            is PatchStep.Patching -> span(0.25f, 0.40f, count)
+            is PatchStep.Reassembling -> span(0.65f, 0.25f, count)
+            is PatchStep.BuildingModule -> 0.92f
+        }
+    }
 
 /**
  * Per-target outcome, retained so the UI can explain a partial failure.
@@ -149,16 +207,25 @@ class PatchPipeline(private val workspace: Workspace) {
         val ok: Boolean get() = failures.isEmpty()
     }
 
-    /** Patches every target class inside [smaliRoot], rewriting files in place. */
-    fun patchTree(smaliRoot: File, selection: PatchSelection): TreeResult {
+    /**
+     * Patches every target class inside [smaliRoot], rewriting files in place.
+     *
+     * [onTarget] reports `completed / total` before each target is walked, so the caller can
+     * turn the 29-target phase into determinate progress without the engine knowing about it.
+     */
+    fun patchTree(
+        smaliRoot: File,
+        selection: PatchSelection,
+        onTarget: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): TreeResult {
         val targets = PatchEngine.targets(selection)
         val outcomes = mutableListOf<TargetOutcome>()
 
-        for (target in targets.keys) {
+        targets.keys.forEachIndexed { index, target ->
+            onTarget(index, targets.size)
             val matches = smaliRoot.walkTopDown()
                 .filter { it.isFile && it.name == target }
                 .toList()
-            if (matches.isEmpty()) continue
 
             for (file in matches) {
                 val className = file.relativeTo(smaliRoot).invariantSeparatorsPath
@@ -221,8 +288,8 @@ class PatchPipeline(private val workspace: Workspace) {
         val roundTrip = DexArchiveRoundTrip()
         // One place every phase transition passes through, so logcat and the UI never disagree.
         val step: (PatchStep) -> Unit = { PatchLog.step(it); onProgress(it) }
-        val disassemblies = inputs.map { (artifactName, file) ->
-            step(PatchStep.Disassembling)
+        val disassemblies = inputs.mapIndexed { index, (artifactName, file) ->
+            step(PatchStep.Disassembling(index, inputs.size))
             PatchLog.info("disassembling $artifactName (${file.length()} bytes)")
             artifactName to roundTrip.disassemble(
                 source = file,
@@ -232,16 +299,19 @@ class PatchPipeline(private val workspace: Workspace) {
             )
         }
 
-        step(PatchStep.Patching)
-        PatchLog.info(
-            "selection=${selection.describe()} targets=${PatchEngine.targets(selection).keys.size}"
-        )
-        val treeResult = patchTree(workspace.smaliDir, selection)
+        val targetCount = PatchEngine.targets(selection).keys.size
+        step(PatchStep.Patching(0, targetCount))
+        PatchLog.info("selection=${selection.describe()} targets=$targetCount")
+        val treeResult = patchTree(workspace.smaliDir, selection) { completed, total ->
+            step(PatchStep.Patching(completed, total))
+        }
 
-        step(PatchStep.Reassembling)
+        step(PatchStep.Reassembling(0, disassemblies.size))
         var runtimeClasses: List<String> = emptyList()
         val artifacts = mutableListOf<File>()
-        for ((artifactName, disassembly) in disassemblies) {
+        for ((index, artifact) in disassemblies.withIndex()) {
+            val (artifactName, disassembly) = artifact
+            step(PatchStep.Reassembling(index, disassemblies.size))
             val isFramework = artifactName == FRAMEWORK
             if (disassembly.slices.isEmpty() && !(isFramework && kaoriosRuntime != null)) {
                 PatchLog.info("$artifactName: no target class present, skipped")

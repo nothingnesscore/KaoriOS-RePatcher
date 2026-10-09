@@ -6,6 +6,7 @@ import dev.kaorios.engine.module.KsuModuleBuilder
 import dev.kaorios.engine.module.MountMode
 import dev.kaorios.engine.patch.PatchEngine
 import dev.kaorios.engine.patch.PatchMode
+import dev.kaorios.engine.patch.PatchSelection
 import dev.kaorios.engine.patch.PatchStatus
 import dev.kaorios.engine.patch.PatchTarget
 import java.io.File
@@ -17,7 +18,8 @@ import java.io.File
  * engine, rebuilds the archives that changed, and packages a module. Exists so a real ROM can
  * be validated in seconds without flashing anything.
  *
- * Usage: `PatchCli <pulled-dir> <work-dir> [mode] [mount] [--disassemble-only] [kaorios.dex]`
+ * Usage: `PatchCli <pulled-dir> <work-dir> [mode] [mount] [--disassemble-only]
+ * [--selection=…] [kaorios.dex]`
  */
 object PatchCli {
 
@@ -44,6 +46,13 @@ object PatchCli {
         val mode = PatchMode.valueOf(args.getOrNull(2)?.uppercase() ?: "ALL_IN_ONE")
         val mount = MountMode.valueOf(args.getOrNull(3)?.uppercase() ?: "MAGIC_MOUNT")
 
+        // Everything after the mount mode is free-form: parsed here so the selection drives
+        // disassembly too, not just the patch pass.
+        val options = args.drop(4)
+        val selectionArg = options.firstOrNull { it.startsWith("--selection=") }
+        val selection = selectionArg?.let { parseSelection(it.removePrefix("--selection=")) }
+            ?: PatchSelection.of(mode)
+
         require(pulled.isDirectory) { "not a directory: $pulled" }
 
         val smaliRoot = work.resolve("smali").also { it.deleteRecursively(); it.mkdirs() }
@@ -53,8 +62,11 @@ object PatchCli {
         val artifacts = MODULE_PATHS.keys.map { pulled.resolve(it) }.filter { it.isFile }
         require(artifacts.isNotEmpty()) { "no known artifacts under $pulled" }
 
-        val targetNames = PatchEngine.disassemblyFiles(mode)
-        println("mode=${mode.name} mount=${mount.name} targets=${targetNames.size} patched=${PatchEngine.targets(mode).keys.size}")
+        val targetNames = PatchEngine.disassemblyFiles(selection)
+        println(
+            "mode=${mode.name} selection=$selection mount=${mount.name} " +
+                "targets=${targetNames.size} patched=${PatchEngine.targets(selection).keys.size}"
+        )
 
         val roundTrip = DexArchiveRoundTrip()
 
@@ -75,23 +87,23 @@ object PatchCli {
         }
 
         // Stops here so a disassembly can be inspected before the engine ever touches it.
-        // Everything after the mount mode is free-form: the stop flag and the runtime dex, in
-        // either order, with the dex optional. It used to be positional, so a desktop run that
-        // wanted a runtime had to pass a placeholder for the flag's slot or its dex was silently
-        // dropped and the patchers failed to link against the hook.
-        val options = args.drop(4)
+        // The stop flag and the runtime dex travel in either order, with the dex optional. It
+        // used to be positional, so a desktop run that wanted a runtime had to pass a placeholder
+        // for the flag's slot or its dex was silently dropped and the patchers failed to link
+        // against the hook.
         val pullOnly = "--disassemble-only" in options
-        val runtimePath = options.firstOrNull { it != "--disassemble-only" }
+        val runtimePath = options.firstOrNull { it != "--disassemble-only" && !it.startsWith("--selection=") }
         val runtime = runtimePath?.let { File(it) }?.takeIf { it.isFile }
 
         if (pullOnly) {
             println("disassembly only; skipping patch and rebuild")
             return
         }
-        // BUILD_SPOOF rewrites Build/Build$VERSION and injects no call site, so it is the one
-        // mode that legitimately runs without a runtime dex. Every other mode links against
-        // android.security.kaorios.KaoriosHook and would fail ART verification at boot without it.
-        val needsRuntime = mode != PatchMode.BUILD_SPOOF
+        // A pure Build spoof rewrites Build/Build$VERSION and injects no call site, so it is the
+        // one selection that legitimately runs without a runtime dex. Every other selection that
+        // injects a call site links against android.security.kaorios.KaoriosHook and would fail
+        // ART verification at boot without it.
+        val needsRuntime = selection.needsRuntime
         if (runtime != null) {
             val classes = KaoriosRuntime.validate(runtime)
             println("kaorios runtime: ${runtime.name} defines ${classes.size}/${KaoriosRuntime.REQUIRED_DESCRIPTORS.size} required class(es)")
@@ -103,10 +115,10 @@ object PatchCli {
             println("!! refusing to build a module — pass kaorios.dex as the last argument")
             return
         } else {
-            println("BUILD_SPOOF: no hooks injected, no KaoriOS runtime required")
+            println("no call sites injected, no KaoriOS runtime required")
         }
 
-        val outcomes = patchTree(smaliRoot, mode)
+        val outcomes = patchTree(smaliRoot, selection)
         workspaceSmali = smaliRoot
         val patched = outcomes.filter { it.status == PatchStatus.PATCHED }
         println("patched=${patched.size} ok=${outcomes.count { it.ok }} failed=${outcomes.count { !it.ok }}")
@@ -116,7 +128,7 @@ object PatchCli {
             // A layout rejection is expected on an unfamiliar ROM. Anything else is an engine
             // bug, and the one-line detail hides where — so re-run and print the trace.
             if (!outcome.ok && outcome.detail?.startsWith("UNSUPPORTED_LAYOUT") != true) {
-                diagnose(artifacts, mode, outcome)
+                diagnose(artifacts, selection, outcome)
             }
         }
 
@@ -179,10 +191,10 @@ object PatchCli {
     }
 
     /** Re-runs a failed target's patcher directly so an engine bug surfaces with a trace. */
-    private fun diagnose(artifacts: List<File>, mode: PatchMode, outcome: TargetOutcome) {
+    private fun diagnose(artifacts: List<File>, selection: PatchSelection, outcome: TargetOutcome) {
         val file = File(workspaceSmali, outcome.className)
         if (!file.isFile) return
-        val target = PatchEngine.targets(mode)[file.name] ?: return
+        val target = PatchEngine.targets(selection)[file.name] ?: return
         val failure = runCatching { target.patch(file.readText()) }.exceptionOrNull()
         if (failure == null) {
             println("      (patcher itself succeeded; the failure is in verify())")
@@ -195,8 +207,8 @@ object PatchCli {
     private var workspaceSmali: File = File(".")
 
     /** Applies the engine to every target file in [smaliRoot], rewriting only what changed. */
-    private fun patchTree(smaliRoot: File, mode: PatchMode): List<TargetOutcome> {
-        val targets = PatchEngine.targets(mode)
+    private fun patchTree(smaliRoot: File, selection: PatchSelection): List<TargetOutcome> {
+        val targets = PatchEngine.targets(selection)
         val outcomes = mutableListOf<TargetOutcome>()
         for (target in targets.keys) {
             smaliRoot.walkTopDown()
@@ -243,7 +255,33 @@ object PatchCli {
         return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 
+    /**
+     * Parses `--selection=<flag>[,<flag>…]` into a [PatchSelection].
+     *
+     * Named flags turn on, everything else is off — the spec is the whole selection, not a
+     * delta — so `--selection=hooks,corePatch,flagSecure,hideDev` is exactly what the app's
+     * default toggles send an Android 13-16 device through (`buildSpoof` is A17-only).
+     */
+    private fun parseSelection(spec: String): PatchSelection {
+        val flags = spec.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val unknown = flags.filterNot { it in SELECTION_FLAGS }
+        require(unknown.isEmpty()) {
+            "unknown selection flag(s): ${unknown.joinToString()} — expected one of " +
+                SELECTION_FLAGS.joinToString()
+        }
+        return PatchSelection(
+            hooks = "hooks" in flags,
+            buildSpoof = "build" in flags,
+            corePatch = "corePatch" in flags,
+            flagSecure = "flagSecure" in flags,
+            hideDevStatus = "hideDev" in flags,
+        )
+    }
+
+    private val SELECTION_FLAGS = setOf("hooks", "build", "corePatch", "flagSecure", "hideDev")
+
     private fun usage(): String =
         "usage: PatchCli <pulled-dir> <work-dir> [ALL_IN_ONE|HOOKS|BUILD_SPOOF|FULL] " +
-            "[MAGIC_MOUNT|HYBRIDMOUNT|DIRECT_OVERLAY] [--disassemble-only] [kaorios.dex]"
+            "[MAGIC_MOUNT|HYBRIDMOUNT|DIRECT_OVERLAY] [--disassemble-only] " +
+            "[--selection=hooks,build,corePatch,flagSecure,hideDev] [kaorios.dex]"
 }

@@ -58,6 +58,9 @@ object CorePatchPatch {
     private val CONST =
         Regex("""^(?:const/4|const/16|const/high16|const)\s+([vp]\d+),\s*(0[xX][0-9a-fA-F]+)$""")
     private val ZERO_CONST = Regex("""^const/4\s+v\d+,\s*0x0$""")
+    private val SPUT_ALLOW = Regex("""^sput-boolean\s+([vp]\d+),\s*\S*ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS:Z$""")
+    private val SGET_BOOLEAN = Regex("""^sget-boolean\s+([vp]\d+),\s*\S+$""")
+    private const val ALLOW_FIELD = "ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS:Z"
     private val DIRECTIVE = Regex("""^\.(registers|locals)\s+(\d+)$""")
     private val REGISTER_LIST = Regex("""\{([^}]*)\}""")
     private val SINGLE_REGISTER = Regex("""^[vp]\d+$""")
@@ -251,25 +254,105 @@ object CorePatchPatch {
     /**
      * `<clinit>`'s `ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS` becomes `true`.
      *
-     * The file carries eleven other `const/4 vN, 0x0` instructions, so the rewrite is scoped to the
-     * constructor and requires exactly one candidate there — a second rewrite would change
-     * behaviour the guide never asked about.
+     * The guide's reference ROM computes the value behind a
+     * `Flags.restrictNonpreloadsSystemShareduids()` guard, and the file carries eleven other
+     * `const/4 vN, 0x0` instructions, so that rewrite is scoped to the constructor and requires
+     * exactly one candidate there — a second rewrite would change behaviour the guide never asked
+     * about.
+     *
+     * An AOSP build ships no such flag: `<clinit>` reads `Build.IS_DEBUGGABLE` straight into the
+     * field (the Android 15 shape this port must carry). The guide's intent is the same in both
+     * shapes, so when the guard is absent the definition feeding the `sput-boolean` is forced
+     * instead — see [forceAllowField], which refuses any shape it does not recognise with the
+     * file byte-identical.
      */
     fun patchReconcilePackageUtils(content: String): PatchOutcome {
         val label = "ReconcilePackageUtils.<clinit>"
         val doc = Doc(content)
         val at = doc.methodStart("ReconcilePackageUtils", "<clinit>", "V")
         val scope = doc.scope(at, label)
-        if ((scope.start..scope.end).none { "restrictNonpreloadsSystemShareduids" in doc.lines[it] }) {
-            throw UnsupportedLayoutException("$label: restrictNonpreloadsSystemShareduids guard not found")
-        }
-        val zeros = (scope.start..scope.end).filter { ZERO_CONST.matches(doc.lines[it].trim()) }
+        val range = scope.start..scope.end
+        val zeros = range.filter { ZERO_CONST.matches(doc.lines[it].trim()) }
         if (zeros.size > 1) throw UnsupportedLayoutException("$label: ${zeros.size} candidate constants in <clinit>")
-        if (zeros.isEmpty()) return PatchOutcome(PatchStatus.ALREADY_PATCHED, content)
 
+        if (range.none { "restrictNonpreloadsSystemShareduids" in doc.lines[it] }) {
+            return forceAllowField(doc, range, label, content)
+        }
+        if (zeros.isEmpty()) return PatchOutcome(PatchStatus.ALREADY_PATCHED, content)
         val register = CONST.matchEntire(doc.lines[zeros[0]].trim())!!.groupValues[1]
         doc.lines[zeros[0]] = INDENT + doc.constFor(register, doc.localsAt(zeros[0], label), 1) + doc.nl
         return outcome(true, content, doc)
+    }
+
+    /** The unique `sput-boolean` of the field plus the instruction defining its register above it. */
+    private class FieldFeed(val put: Int, val feed: Int, val register: String)
+
+    /** Locates the field's one write and the real line directly above it (skipping blanks, `.line`, comments). */
+    private fun allowFieldFeed(doc: Doc, range: IntRange): FieldFeed? {
+        val puts = range.filter { line ->
+            val text = doc.lines[line].trim()
+            text.startsWith("sput-boolean") && ALLOW_FIELD in text
+        }
+        if (puts.size != 1) return null
+        val register = SPUT_ALLOW.matchEntire(doc.lines[puts[0]].trim())?.groupValues?.get(1) ?: return null
+        var at = puts[0] - 1
+        while (at >= range.first) {
+            val text = doc.lines[at].trim()
+            if (text.isEmpty() || text.startsWith(".") || text.startsWith("#")) {
+                at--
+                continue
+            }
+            return FieldFeed(puts[0], at, register)
+        }
+        return null
+    }
+
+    /**
+     * Forces the value written to `ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS` when the guide's guard is
+     * absent. Only two feeds are recognised: a literal the patcher can flip in place (or has
+     * already forced to `1`), and a `sget-boolean` feeding the field directly — the Android 15
+     * shape. The rewritten definition may feed the write and nothing after it, so a register the
+     * rest of the constructor still reads is refused rather than silently changed.
+     */
+    private fun forceAllowField(doc: Doc, range: IntRange, label: String, content: String): PatchOutcome {
+        val feed = allowFieldFeed(doc, range)
+            ?: throw UnsupportedLayoutException("$label: restrictNonpreloadsSystemShareduids guard not found and no unique write to $ALLOW_FIELD")
+        val feedLine = doc.lines[feed.feed].trim()
+        val constant = CONST.matchEntire(feedLine)
+        if (constant != null) {
+            if (constant.groupValues[1] != feed.register) {
+                throw UnsupportedLayoutException("$label: `$feedLine` does not define the field's register")
+            }
+            return when {
+                constant.groupValues[2].equals("0x1", ignoreCase = true) ->
+                    PatchOutcome(PatchStatus.ALREADY_PATCHED, content)
+                constant.groupValues[2].equals("0x0", ignoreCase = true) -> {
+                    rejectLaterReads(doc, feed, range, label)
+                    doc.lines[feed.feed] = INDENT + doc.constFor(feed.register, doc.localsAt(feed.feed, label), 1) + doc.nl
+                    outcome(true, content, doc)
+                }
+                else -> throw UnsupportedLayoutException("$label: the field is forced to ${constant.groupValues[2]} in a layout the guide does not cover")
+            }
+        }
+        val sget = SGET_BOOLEAN.matchEntire(feedLine)
+        if (sget != null && sget.groupValues[1] == feed.register) {
+            rejectLaterReads(doc, feed, range, label)
+            doc.lines[feed.feed] = INDENT + doc.constFor(feed.register, doc.localsAt(feed.feed, label), 1) + doc.nl
+            return outcome(true, content, doc)
+        }
+        throw UnsupportedLayoutException("$label: guard not found and `$feedLine` does not define $ALLOW_FIELD")
+    }
+
+    /** The definition being rewritten must feed the field write and nothing else in the constructor. */
+    private fun rejectLaterReads(doc: Doc, feed: FieldFeed, range: IntRange, label: String) {
+        val register = Regex("""\b${feed.register}\b""")
+        val after = ((feed.put + 1)..range.last).firstOrNull { i ->
+            val text = doc.lines[i].trim()
+            text.isNotEmpty() && !text.startsWith(".") && !text.startsWith("#") && register.containsMatchIn(text)
+        }
+        if (after != null) {
+            throw UnsupportedLayoutException("$label: `${doc.lines[after].trim()}` also reads ${feed.register}")
+        }
     }
 
     // ---- §3 miui-services.jar ------------------------------------------------
@@ -410,10 +493,20 @@ object CorePatchPatch {
         val doc = Doc(content)
         val at = doc.methodStartOrFail("ReconcilePackageUtils", "<clinit>", "V")
         val scope = doc.scope(at, "ReconcilePackageUtils.<clinit>")
-        if ((scope.start..scope.end).none { "restrictNonpreloadsSystemShareduids" in doc.lines[it] }) {
-            failVerification("ReconcilePackageUtils: <clinit> lost its guard")
-        }
-        if ((scope.start..scope.end).any { ZERO_CONST.matches(doc.lines[it].trim()) }) {
+        val range = scope.start..scope.end
+        if (range.none { "restrictNonpreloadsSystemShareduids" in doc.lines[it] }) {
+            // Unguarded shape: the field's one write must read a literal 1 the patcher forced —
+            // a `sget-boolean` (stock) or any other value means the stock default still applies.
+            val feed = allowFieldFeed(doc, range)
+                ?: failVerification("ReconcilePackageUtils: <clinit> has no unique write to $ALLOW_FIELD")
+            val constant = CONST.matchEntire(doc.lines[feed.feed].trim())
+                ?: failVerification("ReconcilePackageUtils: <clinit> still allows the stock default")
+            if (constant.groupValues[1] != feed.register ||
+                !constant.groupValues[2].equals("0x1", ignoreCase = true)
+            ) {
+                failVerification("ReconcilePackageUtils: <clinit> still allows the stock default")
+            }
+        } else if (range.any { ZERO_CONST.matches(doc.lines[it].trim()) }) {
             failVerification("ReconcilePackageUtils: <clinit> still allows the stock default")
         }
     }

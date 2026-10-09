@@ -96,6 +96,7 @@
     <string name="status_building_module">Building module</string>
     <string name="status_done">Module ready</string>
     <string name="status_failed">Failed</string>
+    <string name="status_count">%1$s (%2$d/%3$d)</string>
 
     <!-- Per-target status -->
     <string name="target_patched">Patched</string>
