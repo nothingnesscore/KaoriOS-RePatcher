@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.kaorios.patcher.AppVersion
 import dev.kaorios.patcher.R
 import dev.kaorios.patcher.device.RootFlavour
 import dev.kaorios.patcher.ui.PatchUiState
@@ -25,9 +26,12 @@ import dev.kaorios.patcher.ui.theme.PREF_DYNAMIC_COLOR
 import dev.kaorios.patcher.ui.theme.PREF_EDGE_BLUR
 import dev.kaorios.patcher.ui.theme.PREF_LIQUID_GLASS
 import dev.kaorios.patcher.ui.theme.PREF_THEME_MODE
+import dev.kaorios.patcher.ui.theme.PREF_UPDATE_CHANNEL
 import dev.kaorios.patcher.ui.theme.THEME_MODE_DARK
 import dev.kaorios.patcher.ui.theme.THEME_MODE_LIGHT
 import dev.kaorios.patcher.ui.theme.THEME_MODE_SYSTEM
+import dev.kaorios.patcher.ui.theme.CHANNEL_BETA
+import dev.kaorios.patcher.ui.theme.CHANNEL_STABLE
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Background
 import top.yukonga.miuix.kmp.icon.extended.Delete
@@ -40,6 +44,7 @@ import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.icon.extended.Unlock
 
 private val ThemeModes = listOf(THEME_MODE_SYSTEM, THEME_MODE_LIGHT, THEME_MODE_DARK)
+private val Channels = listOf(CHANNEL_BETA, CHANNEL_STABLE)
 
 @Composable
 fun SettingsPage(
@@ -56,6 +61,7 @@ fun SettingsPage(
         modifier = modifier,
     ) {
         AppearanceSection(prefs)
+        UpdatesSection(prefs)
         WorkspaceSection(state, onClear)
         EnvironmentSection(state)
     }
@@ -126,6 +132,42 @@ private fun AppearanceSection(prefs: PrefsRepository) {
             checked = edgeBlur,
             onCheckedChange = { prefs.putBoolean(PREF_EDGE_BLUR, it) },
             icon = MiuixIcons.Tune,
+        )
+    }
+}
+
+@Composable
+private fun UpdatesSection(prefs: PrefsRepository) {
+    val channel = rememberStringPreference(prefs, PREF_UPDATE_CHANNEL, CHANNEL_BETA)
+    val channelLabels = Channels.map {
+        stringResource(
+            when (it) {
+                CHANNEL_STABLE -> R.string.channel_stable
+                else -> R.string.channel_beta
+            },
+        )
+    }
+
+    SectionCard(title = stringResource(R.string.settings_updates_title), icon = MiuixIcons.Info) {
+        SettingDropdown(
+            title = stringResource(R.string.settings_channel_title),
+            summary = stringResource(
+                when (channel) {
+                    CHANNEL_STABLE -> R.string.settings_channel_stable_summary
+                    else -> R.string.settings_channel_beta_summary
+                },
+            ),
+            items = channelLabels,
+            selectedIndex = Channels.indexOf(channel).coerceIn(0, Channels.lastIndex),
+            onSelectedIndexChange = { index ->
+                prefs.putString(PREF_UPDATE_CHANNEL, Channels[index])
+            },
+            icon = MiuixIcons.Info,
+        )
+        LabelledRow(
+            label = stringResource(R.string.label_version),
+            value = AppVersion.shortLabel,
+            icon = MiuixIcons.Info,
         )
     }
 }

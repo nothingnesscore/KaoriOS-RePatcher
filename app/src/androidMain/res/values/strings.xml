@@ -45,12 +45,17 @@
     <string name="label_rom">ROM</string>
     <string name="label_root">Root</string>
     <string name="label_patcher">Patcher</string>
+    <string name="label_version">Version</string>
 
     <!-- Values -->
     <string name="value_reading">Reading device properties…</string>
     <string name="value_supported_yes">yes</string>
     <string name="value_supported_no">outside 13–17</string>
     <string name="engine_version">Kaorios engine v1.0.0 (A13–17)</string>
+
+    <!-- Update channel -->
+    <string name="channel_beta">Beta</string>
+    <string name="channel_stable">Stable</string>
 
     <!-- Root flavours -->
     <string name="root_none">None detected</string>
@@ -142,6 +147,10 @@
     <string name="settings_edge_blur_summary">Soften the top and the bottom of the page</string>
     <string name="settings_amoled_black">AMOLED pure black</string>
     <string name="settings_amoled_black_summary">Paint backgrounds pure black on OLED displays</string>
+    <string name="settings_updates_title">Updates</string>
+    <string name="settings_channel_title">Update channel</string>
+    <string name="settings_channel_beta_summary">Get beta builds first — may contain bugs</string>
+    <string name="settings_channel_stable_summary">Only receive tested stable releases</string>
     <string name="settings_workspace_title">Workspace</string>
     <string name="settings_workspace_size">Pulled jars and disassembled trees</string>
     <string name="settings_workspace_summary">%1$s MB — tap to clear</string>

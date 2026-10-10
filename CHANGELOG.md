@@ -18,6 +18,10 @@ belong to the version line being released — and leave released sections alone.
   full dex, and relocates them to a dex in the same jar with headroom — the classloader
   loads every dex, so the move is transparent at boot. End-to-end against the reported
   device's `framework.jar`: patched 19/19, all dexes under the ceiling, module emitted.
+- **Feature — version badge and update channel:** the title bar now shows a short version
+  chip (`beta.6` on beta builds, `stable.N` on stable) next to the settings gear. Settings
+  gains an Updates section with a channel switch (Beta / Stable) so testers can opt into
+  either track without reinstalling.
 - **Tests — suite 127 → 132:** `MethodIdOverflowRelocationTest` pins the overflow
   detection and the distinct exception type the rebuild loop catches.
 

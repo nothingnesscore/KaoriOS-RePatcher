@@ -33,10 +33,14 @@ internal const val PREF_THEME_SEED_COLOR = "pref_theme_seed_color"
 internal const val PREF_LIQUID_GLASS = "pref_liquid_glass_navbar"
 internal const val PREF_EDGE_BLUR = "pref_edge_gradient_blur"
 internal const val PREF_AMOLED_BLACK = "pref_amoled_black"
+internal const val PREF_UPDATE_CHANNEL = "pref_update_channel"
 
 internal const val THEME_MODE_SYSTEM = "system"
 internal const val THEME_MODE_LIGHT = "light"
 internal const val THEME_MODE_DARK = "dark"
+
+internal const val CHANNEL_BETA = "beta"
+internal const val CHANNEL_STABLE = "stable"
 
 internal const val DEFAULT_THEME_SEED_COLOR = 0xFF3B6FF5L
 
@@ -48,6 +52,7 @@ internal val PrefDefaults: Map<String, Any> = mapOf(
     PREF_LIQUID_GLASS to true,
     PREF_EDGE_BLUR to true,
     PREF_AMOLED_BLACK to false,
+    PREF_UPDATE_CHANNEL to CHANNEL_BETA,
 )
 
 /**

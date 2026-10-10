@@ -78,6 +78,10 @@ android {
         versionName = providers.gradleProperty("appVersionName").get()
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     signingConfigs {
         // Signed only when signing info is provided: Gradle properties
         // (-Pks.storeFile=… -Pks.storePassword=… -Pks.keyAlias=… -Pks.keyPassword=…,

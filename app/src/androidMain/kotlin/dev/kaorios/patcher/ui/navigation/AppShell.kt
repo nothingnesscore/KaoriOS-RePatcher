@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.kaorios.patcher.AppVersion
 import dev.kaorios.patcher.R
 import dev.kaorios.patcher.pipeline.PatchStep
 import dev.kaorios.patcher.ui.PatchUiState
@@ -293,6 +294,10 @@ fun KaoriosPatcherApp(
                                     tone = StatusTone.Primary,
                                 )
                             }
+                            StatusBadge(
+                                text = AppVersion.shortLabel,
+                                tone = if (AppVersion.isBeta) StatusTone.Primary else StatusTone.Neutral,
+                            )
                             IconButton(onClick = { openSettings() }) {
                                 Icon(
                                     imageVector = MiuixIcons.Settings,
