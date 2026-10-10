@@ -102,6 +102,10 @@ jobs:
           from "adb logcat -s KaoriosPatcher". Early reports on betas are exactly what
           turn them into stables.
           EOF
+          # Compiled, versioned history (incl. test-suite changes) appended verbatim —
+          # headings demoted one level so they nest under the notes above.
+          printf '\n---\n\n' >> notes.md
+          sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' -e 's/^# /## /' CHANGELOG.md >> notes.md
           gh release create "v${VER}" --prerelease \
             --title "Kaorios RePatcher ${VER} (beta)" \
             --notes-file notes.md \

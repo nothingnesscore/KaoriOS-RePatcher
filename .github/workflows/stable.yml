@@ -121,6 +121,10 @@ jobs:
           (or grab the newest prerelease) and report early - beta bugs fixed fast are
           stable bugs that never happen.
           EOF
+          # Compiled, versioned history (incl. test-suite changes) appended verbatim —
+          # headings demoted one level so they nest under the notes above.
+          printf '\n---\n\n' >> notes.md
+          sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' -e 's/^# /## /' CHANGELOG.md >> notes.md
           gh release create "v${BASE}" \
             --title "Kaorios RePatcher ${BASE}" \
             --notes-file notes.md \

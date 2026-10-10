@@ -87,6 +87,11 @@ Two manual GitHub Actions workflows in `.github/workflows/`, both checkpointed o
 - `beta.yml` — publishes `v<appVersionName>-beta.<run>` as a prerelease with a
   work-in-progress warning; debug-signed when the repo has no signing secrets.
 
+Both append `CHANGELOG.md` to the release notes (headings demoted one level), so every
+release carries the compiled, versioned history — including test-suite changes — since the
+previous one; write a release's section there in the same step that bumps
+`gradle.properties`.
+
 `gradle.properties` (`appVersionName` / `appVersionCode`) is the single source of truth
 both read; bump it after every stable release. Signing resolves from `-Pks.*` Gradle
 properties (CI: secrets `RELEASE_KEYSTORE_B64`, `RELEASE_KEYSTORE_PASSWORD`,
