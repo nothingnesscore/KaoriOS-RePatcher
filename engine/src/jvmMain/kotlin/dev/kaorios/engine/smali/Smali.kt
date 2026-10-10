@@ -108,17 +108,134 @@ object Smali {
     /**
      * Rewrites `v(R-P+N)` parameter aliases to `pN` so that growing `.registers`
      * does not silently move the physical parameter slots.
+     *
+     * String literals and `#` comments are data and keep their bytes; class descriptors
+     * (`Lorg/v15;`), field names (`->v15:I`) and annotation atoms are excluded by the
+     * boundaries, matching the reference's `_canonicalize_param_aliases` — a bare `\b`
+     * boundary admits `/`, `;`, `:` and `>`, which rewrites names that are not registers
+     * at all and yields dex that assembles but resolves the wrong class.
      */
     fun canonicalizeParamAliases(methodBody: String, registers: Int, paramCount: Int): String {
-        var body = methodBody
         val firstParamV = registers - paramCount
+        if (firstParamV < 0) {
+            throw UnsupportedLayoutException(
+                "unsupported register allocation: .registers $registers covers $paramCount parameters"
+            )
+        }
+        var body = methodBody
         for (n in 0 until paramCount) {
-            val vName = "v${firstParamV + n}"
-            val pName = "p$n"
-            body = Regex("(?<![A-Za-z0-9_])${Regex.escape(vName)}(?![0-9])").replace(body, pName)
+            val vName = firstParamV + n
+            val alias = paramAlias("v$vName")
+            body = transformOutside(body, LITERAL_OR_COMMENT) { alias.replace(it, "p$n") }
         }
         return body
     }
+
+    /**
+     * A register token with the boundaries the reference uses: not preceded by
+     * `[\w/$;>:]` (so `Lorg/v15;`, `Lv15;`, `->v15` and `:v15` never match) and not
+     * followed by `[\w/$;]` (so `v150` and `->v15…` never match).
+     */
+    fun paramAlias(name: String): Regex =
+        Regex("(?<![\\w/\$;>:])" + Regex.escape(name) + "(?![\\w/\$;])")
+
+    /**
+     * Rejects methods whose register operands no longer fit their opcode's encoding.
+     *
+     * Growing a directive shifts every physical parameter slot up by one, so a stock
+     * `invoke-virtual {p0}` in a method that had `.registers 16` suddenly addresses
+     * `v16` — past the 4-bit operand window `invoke` (and `const/4`, `iget`, `if-eq`,
+     * every `/2addr` form…) can encode. The file still looks like valid smali, so the
+     * failure only surfaces at reassembly, where it kills the whole run. The reference
+     * refuses instead (`UNSUPPORTED_LAYOUT`, input untouched); this is that check,
+     * applied to every method of a file the patcher just changed.
+     */
+    fun verifyRegisterEncoding(fileContent: String, label: String) {
+        var searchFrom = 0
+        while (true) {
+            val start = METHOD_START.find(fileContent, searchFrom) ?: break
+            val end = END_METHOD.find(fileContent, start.range.last + 1) ?: break
+            searchFrom = end.range.last + 1
+            val method = fileContent.substring(start.range.first, searchFrom)
+            val header = method.lineSequence().first().removeSuffix("\r")
+            val directive = findRegisterDirective(method) ?: continue
+            val params = try {
+                dev.kaorios.engine.smali.MethodRewrite.paramCount(header)
+            } catch (e: UnsupportedLayoutException) {
+                continue
+            }
+            val registers = when (directive.kind) {
+                RegisterDirective.Kind.REGISTERS -> directive.count
+                RegisterDirective.Kind.LOCALS -> directive.count + params
+            }
+            if (registers < params) continue
+            verifyMethodRegisters(method, header, registers, params, label)
+        }
+    }
+
+    private fun verifyMethodRegisters(
+        method: String,
+        header: String,
+        registers: Int,
+        params: Int,
+        label: String
+    ) {
+        for (line in splitLines(method)) {
+            val instruction = LITERAL_STRIP.replace(line, "").trim()
+            if (instruction.isEmpty() || instruction.startsWith(".") || instruction.startsWith(":")) continue
+            val opcode = instruction.split(WHITESPACE).first()
+            val typeCut = TYPE_ATOM.find(instruction, opcode.length)
+            val operands = if (typeCut != null) instruction.substring(0, typeCut.range.first) else instruction
+            val names = OPERAND_REGISTER.findAll(operands).toList()
+            val narrow = opcode in NARROW_OPCODES ||
+                opcode.startsWith("iget") || opcode.startsWith("iput") ||
+                opcode.startsWith("neg-") || opcode.startsWith("not-") ||
+                "-to-" in opcode || opcode.endsWith("/2addr") ||
+                ((opcode.startsWith("invoke-") || opcode.startsWith("filled-new-array")) &&
+                    !opcode.contains("/range"))
+            names.forEachIndexed { index, match ->
+                val name = match.groupValues[1]
+                val physical = name.substring(1).toInt() +
+                    (if (name.startsWith("p")) registers - params else 0)
+                var limit = if (narrow) 15 else 255
+                val isRange = (opcode.startsWith("invoke-") || opcode.startsWith("filled-new-array")) &&
+                    opcode.contains("/range")
+                if (isRange || (opcode.startsWith("move") && opcode.endsWith("/16"))) {
+                    limit = 65535
+                } else if (opcode.startsWith("move") && opcode.endsWith("/from16") && index == 1) {
+                    limit = 65535
+                }
+                if (physical > limit) {
+                    throw UnsupportedLayoutException(
+                        "$label: unsupported register shift in ${header.trim()}: $opcode operand " +
+                            "$name becomes v$physical, encoding limit v$limit"
+                    )
+                }
+            }
+        }
+    }
+
+    /** String literals and `#` comments — the stretches no rewrite may touch. */
+    internal val LITERAL_OR_COMMENT = Regex("\"(?:\\\\.|[^\"\\\\])*\"|#[^\\n]*")
+
+    /** Same protection, for a single already-isolated line. */
+    private val LITERAL_STRIP = Regex("\"(?:\\\\.|[^\"\\\\])*\"|#.*")
+
+    private val METHOD_START = Regex("(?m)^\\.method[^\\n]*")
+    private val WHITESPACE = Regex("\\s+")
+    private val OPERAND_REGISTER = Regex("\\b([vp]\\d+)\\b")
+
+    /**
+     * A type descriptor or array type in operand position: `…, Lorg/Foo;`, `…, [I`,
+     * or an annotation atom (`enum Lorg/Foo;`) that carries no comma. Cuts the operand
+     * scan before descriptor text whose `v15` component is a class name, not a register.
+     */
+    private val TYPE_ATOM = Regex("(?:,\\s*|\\s)[\\[L]")
+
+    private val NARROW_OPCODES = setOf(
+        "move", "move-wide", "move-object", "const/4", "array-length", "new-array",
+        "instance-of", "if-eq", "if-ne", "if-lt", "if-ge", "if-gt", "if-le",
+    )
 
     /**
      * Span of the method whose declaration line ends with [methodAnchor], exclusive of `.end method`.

@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 116-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 127-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -87,10 +87,11 @@ Two manual GitHub Actions workflows in `.github/workflows/`, both checkpointed o
 - `beta.yml` — publishes `v<appVersionName>-beta.<run>` as a prerelease with a
   work-in-progress warning; debug-signed when the repo has no signing secrets.
 
-Both append `CHANGELOG.md` to the release notes (headings demoted one level), so every
-release carries the compiled, versioned history — including test-suite changes — since the
-previous one; write a release's section there in the same step that bumps
-`gradle.properties`.
+Both embed `CHANGELOG.md` in the release notes (headings demoted one level), but the scopes
+differ: a beta's notes carry only the newest section — the workflow refuses to publish if
+that section does not belong to `v<appVersionName>`, which is why the section is written in
+the same step that bumps `gradle.properties` — while a stable's notes carry every section
+since the previous stable release, betas included.
 
 `gradle.properties` (`appVersionName` / `appVersionCode`) is the single source of truth
 both read; bump it after every stable release. Signing resolves from `-Pks.*` Gradle
@@ -184,6 +185,26 @@ cannot catch whole classes of porting bug. `SmaliTransformOutsideTest` guards th
 literal-splitting gap and `KeystoreConsistencyTest` pins the v2.0.6.1 leaf delegation against
 `script/test_keystore_consistency.py`, and `real_a17_*` oracle cases carry verbatim classes from
 a production ROM. Add to these whenever a patcher starts rewriting text it does not own.
+
+Register growth is *verified*, not just canonicalised: `Smali.verifyRegisterEncoding` runs
+inside `PatchEngine.applyTargetPatch` on every file the patcher changed (the port of
+upstream `kaorios_patcher.py::_verify_register_encoding` at `aab122b`), recomputes each
+method's physical parameter slots, and refuses with `UNSUPPORTED_LAYOUT` — input
+byte-identical — when a stock narrow instruction (`iget`/`iput`, non-`/range` `invoke`,
+`const/4`, `/2addr`, `if-*`, …) would end up addressing past its encoding limit
+(v15 / v255 / v65535). Because the check scans *every* method of the file,
+`MethodRewrite.paramCount` must count dex slots, not descriptor entries: `J`/`D` take two
+(`[J`/`[D` one) or a stock wide-parameter method like `getInstalledPackagesBody(JII)` gets
+a false refusal — its `p0` sits at `registers - ins_size`. Without the gate this bug class
+reaches the assembler as `smali could not assemble N file(s)` and kills the whole run,
+which is what the Android 16 report did. `PatchRegisterEncodingTest` pins it end to end
+against upstream's `script/test_patcher_register_encoding.py`.
+
+`generate_oracle.py` keeps the three `aosp15_*` fixtures (`SKIP_FIXTURES`) out of the
+differential oracle: the Python reference is narrower than the engine on AOSP 15
+(`AndroidKeyStoreSpi`, `ComputerEngine` refuse where we extend) and ships no CorePatch §2
+(`ReconcilePackageUtils`) patcher at all. Those layouts are pinned instead by
+`AospLayoutsTest` and the `TestDebug` round trip.
 
 Real-ROM oracle cases are generated only when `local-work/pristine/smali` holds a disassembly;
 `generate_oracle.py` skips them otherwise, so a checkout without a device still runs.
@@ -494,7 +515,7 @@ app query ever stamps the flag. Toolbox's own status line only reads the raw fla
   `y31` → `e41(pkg, 0, 1)` → `ex.f` JSON), after which opening that app can re-trigger the stamp.
 - 10 new engine tests live in `AppsFilterBasePatchTest` (shape, idempotency, NOT_TARGET
   byte-identity, label collision, verify rejections, `.locals`/`.registers` variants); suite is
-  now 116 tests, all green.
+  now 127 tests, all green.
 
 Verified on device (previous, 7-dex build): the output `framework.jar` defined `KaoriosHook` (334
 classes); `classes2/4/5/6.dex` were SHA-256 identical to stock; the emitted guard digest for

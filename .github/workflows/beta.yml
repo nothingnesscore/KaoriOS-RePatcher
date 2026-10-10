@@ -102,10 +102,21 @@ jobs:
           from "adb logcat -s KaoriosPatcher". Early reports on betas are exactly what
           turn them into stables.
           EOF
-          # Compiled, versioned history (incl. test-suite changes) appended verbatim —
-          # headings demoted one level so they nest under the notes above.
+          # Only the newest changelog entry - a beta's notes stay short, and the compiled
+          # history since the previous stable rides on that stable instead. The entry must
+          # belong to this version line (written when bumping gradle.properties); the beta
+          # run number is dynamic, so match on the base version, not the full tag.
           printf '\n---\n\n' >> notes.md
-          sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' -e 's/^# /## /' CHANGELOG.md >> notes.md
+          head_line="$(grep -m1 '^## \[' CHANGELOG.md || true)"
+          case "$head_line" in
+            *"[v${BASE}]"*|*"[v${BASE}-"*) ;;
+            *)
+              echo "::error::newest CHANGELOG.md section is not for v${BASE}. Write it when bumping gradle.properties."
+              exit 1
+              ;;
+          esac
+          awk '/^## \[/ { n++; if (n > 1) exit } n > 0 { print }' CHANGELOG.md \
+            | sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' >> notes.md
           gh release create "v${VER}" --prerelease \
             --title "Kaorios RePatcher ${VER} (beta)" \
             --notes-file notes.md \

@@ -188,10 +188,18 @@ object ComputerEnginePatch {
         when {
             original != null && original.kind == RegisterDirective.Kind.LOCALS -> {
                 val currentLocs = original.count
+                // Parameters sit at v(currentLocs…); growing the locals shifts them, so their
+                // numeric aliases become pN first — otherwise a stock `const/4 v0` reads the
+                // freshly added local instead of the parameter it meant.
+                val canonicalized = Smali.canonicalizeParamAliases(
+                    body, currentLocs + paramWidth, paramWidth
+                )
                 hookReg = "v$currentLocs"
-                updatedBody = body.replaceRange(
-                    original.span.start, original.span.endExclusive,
-                    "${original.indent}.locals ${currentLocs + 1}$newline"
+                val directive = Smali.findRegisterDirective(canonicalized)
+                    ?: throw UnsupportedLayoutException(".locals directive vanished during canonicalization")
+                updatedBody = canonicalized.replaceRange(
+                    directive.span.start, directive.span.endExclusive,
+                    "${directive.indent}.locals ${currentLocs + 1}$newline"
                 )
             }
             original != null -> {
@@ -200,12 +208,7 @@ object ComputerEnginePatch {
                 if (existingLocals < 0) {
                     throw UnsupportedLayoutException(".registers $currentRegs is less than parameter count $paramWidth")
                 }
-                var rewritten = body
-                for (registerIndex in (existingLocals until currentRegs).reversed()) {
-                    val parameterIndex = registerIndex - existingLocals
-                    rewritten = Regex("(?<![A-Za-z0-9_])v$registerIndex(?![0-9])")
-                        .replace(rewritten, "p$parameterIndex")
-                }
+                val rewritten = Smali.canonicalizeParamAliases(body, currentRegs, paramWidth)
                 hookReg = "v$existingLocals"
                 val directive = Smali.findRegisterDirective(rewritten)
                     ?: throw UnsupportedLayoutException(".registers directive vanished during canonicalization")
@@ -221,8 +224,12 @@ object ComputerEnginePatch {
             }
         }
 
+        // The threshold counts the *highest* parameter slot, not the hook's own operand: after
+        // canonicalisation the stock body addresses every parameter as pN, and each of those
+        // physical registers must still fit a 4-bit operand — `new_locals + param_width - 1`
+        // is exactly p(param_width-1). The reference uses the same bound.
         val newLocals = Smali.findRegisterDirective(updatedBody)?.count ?: 1
-        if (maxOf(newLocals + userParam.substring(1).toInt(), hookReg.substring(1).toInt()) > 15) {
+        if (maxOf(newLocals + paramWidth - 1, hookReg.substring(1).toInt()) > 15) {
             return highRegisterPatch(text, info, body, original, paramWidth, newline)
         }
 
@@ -289,7 +296,7 @@ object ComputerEnginePatch {
     }
 
     private val SPLIT_SAFE = Regex("\"(?:\\\\.|[^\"\\\\])*\"|#[^\\n]*")
-    private val PARAM_ALIAS = Regex("\\bp(\\d+)\\b")
+    private val PARAM_ALIAS = Regex("(?<![\\w/\$;>:])p(\\d+)(?![\\w/\$;])")
 
     private val INSTALLER_API = Regex(
         "(?m)^\\.method[^\\n]*\\b(?:getInstallerPackageName|getInstallSourceInfo)\\("

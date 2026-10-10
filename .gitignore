@@ -33,3 +33,6 @@ local-work/
 /services.jar
 /miui-services.jar
 /log.txt
+
+# Device dumps and failure logs from on-device sessions
+TestDebug/

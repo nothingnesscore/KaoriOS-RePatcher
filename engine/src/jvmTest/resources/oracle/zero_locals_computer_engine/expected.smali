@@ -22,6 +22,6 @@
     return v0
     :cond_kaorios_ps_null
 
-    const/4 v0, 0x0
-    return v0
+    const/4 p0, 0x0
+    return p0
 .end method

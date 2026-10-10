@@ -29025,7 +29025,7 @@
 .end method
 
 .method public final shouldFilterApplication(Lcom/android/server/pm/pkg/PackageStateInternal;ILandroid/content/ComponentName;IIZZ)Z
-    .locals 10
+    .locals 20
     .param p1, "ps"    # Lcom/android/server/pm/pkg/PackageStateInternal;
     .param p2, "callingUid"    # I
     .param p3, "component"    # Landroid/content/ComponentName;
@@ -29033,21 +29033,31 @@
     .param p5, "userId"    # I
     .param p6, "filterUninstall"    # Z
     .param p7, "filterArchived"    # Z
-    if-eqz p1, :cond_kaorios_ps_null
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPackageName()Ljava/lang/String;
-    move-result-object v9
-    if-eqz v9, :cond_kaorios_ps_null
-    invoke-static {p2, v9, p5}, Landroid/security/kaorios/KaoriosHook;->shouldHideAppListForCaller(ILjava/lang/String;I)Z
-    move-result v9
-    if-eqz v9, :cond_kaorios_ps_null
-    const/4 v9, 0x1
-    return v9
+    move-object/16 v9, p0
+    move-object/16 v10, p1
+    move/16 v11, p2
+    move-object/16 v12, p3
+    move/16 v13, p4
+    move/16 v14, p5
+    move/16 v15, p6
+    move/16 v16, p7
+    if-eqz v10, :cond_kaorios_ps_null
+    invoke-interface/range {v10 .. v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPackageName()Ljava/lang/String;
+    move-result-object v18
+    if-eqz v18, :cond_kaorios_ps_null
+    move/16 v17, v11
+    move/16 v19, v14
+    invoke-static/range {v17 .. v19}, Landroid/security/kaorios/KaoriosHook;->shouldHideAppListForCaller(ILjava/lang/String;I)Z
+    move-result v17
+    if-eqz v17, :cond_kaorios_ps_null
+    const/16 v17, 0x1
+    return v17
     :cond_kaorios_ps_null
 
     .line 2592
-    move v5, p5
+    move v5, v14
 
-    invoke-static {p2}, Landroid/os/Process;->isSdkSandboxUid(I)Z
+    invoke-static {v11}, Landroid/os/Process;->isSdkSandboxUid(I)Z
 
     move-result v0
 
@@ -29056,19 +29066,19 @@
     if-eqz v0, :cond_0
 
     .line 2593
-    invoke-static {p2}, Landroid/os/Process;->getAppUidForSdkSandboxUid(I)I
+    invoke-static {v11}, Landroid/os/Process;->getAppUidForSdkSandboxUid(I)I
 
     move-result v0
 
     .line 2595
     .local v0, "clientAppUid":I
-    if-eqz p1, :cond_0
+    if-eqz v10, :cond_0
 
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->getAppId()I
+    invoke-interface {v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->getAppId()I
 
     move-result v2
 
-    invoke-static {p5, v2}, Landroid/os/UserHandle;->getUid(II)I
+    invoke-static {v14, v2}, Landroid/os/UserHandle;->getUid(II)I
 
     move-result v2
 
@@ -29080,38 +29090,38 @@
     .line 2600
     .end local v0    # "clientAppUid":I
     :cond_0
-    invoke-static {p2}, Landroid/os/Process;->isIsolated(I)Z
+    invoke-static {v11}, Landroid/os/Process;->isIsolated(I)Z
 
     move-result v0
 
     if-eqz v0, :cond_1
 
     .line 2601
-    invoke-direct {p0, p2}, Lcom/android/server/pm/ComputerEngine;->getIsolatedOwner(I)I
+    invoke-direct {v9, v11}, Lcom/android/server/pm/ComputerEngine;->getIsolatedOwner(I)I
 
-    move-result p2
+    move-result v11
 
-    move v2, p2
+    move v2, v11
 
     goto :goto_0
 
     .line 2600
     :cond_1
-    move v2, p2
+    move v2, v11
 
     .line 2603
-    .end local p2    # "callingUid":I
+    .end local v11    # "callingUid":I
     .local v2, "callingUid":I
     :goto_0
-    invoke-virtual {p0, v2}, Lcom/android/server/pm/ComputerEngine;->getInstantAppPackageName(I)Ljava/lang/String;
+    invoke-virtual {v9, v2}, Lcom/android/server/pm/ComputerEngine;->getInstantAppPackageName(I)Ljava/lang/String;
 
-    move-result-object p2
+    move-result-object v11
 
     .line 2604
-    .local p2, "instantAppPkgName":Ljava/lang/String;
+    .local v11, "instantAppPkgName":Ljava/lang/String;
     const/4 v0, 0x1
 
-    if-eqz p2, :cond_2
+    if-eqz v11, :cond_2
 
     move v3, v0
 
@@ -29125,10 +29135,10 @@
 
     .line 2605
     .local v6, "callerIsInstantApp":Z
-    if-eqz p1, :cond_3
+    if-eqz v10, :cond_3
 
     .line 2606
-    invoke-interface {p1, p5}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
+    invoke-interface {v10, v14}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
 
     move-result-object v3
 
@@ -29151,9 +29161,9 @@
 
     .line 2610
     .local v7, "packageArchivedForUser":Z
-    if-eqz p1, :cond_e
+    if-eqz v10, :cond_e
 
-    if-eqz p6, :cond_5
+    if-eqz v15, :cond_5
 
     .line 2612
     invoke-static {v2}, Lcom/android/server/pm/PackageManagerServiceUtils;->isSystemOrRootOrShell(I)Z
@@ -29163,14 +29173,14 @@
     if-nez v3, :cond_5
 
     .line 2613
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->isHiddenUntilInstalled()Z
+    invoke-interface {v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->isHiddenUntilInstalled()Z
 
     move-result v3
 
     if-nez v3, :cond_5
 
     .line 2614
-    invoke-interface {p1, p5}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
+    invoke-interface {v10, v14}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
 
     move-result-object v3
 
@@ -29182,18 +29192,18 @@
 
     if-eqz v7, :cond_4
 
-    if-eqz p7, :cond_5
+    if-eqz v16, :cond_5
 
     :cond_4
     goto/16 :goto_3
 
     .line 2624
     :cond_5
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPackageName()Ljava/lang/String;
+    invoke-interface {v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPackageName()Ljava/lang/String;
 
     move-result-object v3
 
-    invoke-virtual {p0, v3, v2}, Lcom/android/server/pm/ComputerEngine;->isCallerSameApp(Ljava/lang/String;I)Z
+    invoke-virtual {v9, v3, v2}, Lcom/android/server/pm/ComputerEngine;->isCallerSameApp(Ljava/lang/String;I)Z
 
     move-result v3
 
@@ -29207,7 +29217,7 @@
     if-eqz v6, :cond_a
 
     .line 2629
-    invoke-interface {p1, p5}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
+    invoke-interface {v10, v14}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
 
     move-result-object v3
 
@@ -29222,13 +29232,13 @@
 
     .line 2634
     :cond_7
-    if-eqz p3, :cond_9
+    if-eqz v12, :cond_9
 
     .line 2635
-    iget-object v3, p0, Lcom/android/server/pm/ComputerEngine;->mInstrumentation:Lcom/android/server/utils/WatchedArrayMap;
+    iget-object v3, v9, Lcom/android/server/pm/ComputerEngine;->mInstrumentation:Lcom/android/server/utils/WatchedArrayMap;
 
     .line 2636
-    invoke-virtual {v3, p3}, Lcom/android/server/utils/WatchedArrayMap;->get(Ljava/lang/Object;)Ljava/lang/Object;
+    invoke-virtual {v3, v12}, Lcom/android/server/utils/WatchedArrayMap;->get(Ljava/lang/Object;)Ljava/lang/Object;
 
     move-result-object v3
 
@@ -29243,7 +29253,7 @@
 
     move-result-object v4
 
-    invoke-virtual {p0, v4, v2}, Lcom/android/server/pm/ComputerEngine;->isCallerSameApp(Ljava/lang/String;I)Z
+    invoke-virtual {v9, v4, v2}, Lcom/android/server/pm/ComputerEngine;->isCallerSameApp(Ljava/lang/String;I)Z
 
     move-result v4
 
@@ -29254,7 +29264,7 @@
 
     .line 2641
     :cond_8
-    invoke-virtual {p0, p3, p4}, Lcom/android/server/pm/ComputerEngine;->isComponentVisibleToInstantApp(Landroid/content/ComponentName;I)Z
+    invoke-virtual {v9, v12, v13}, Lcom/android/server/pm/ComputerEngine;->isComponentVisibleToInstantApp(Landroid/content/ComponentName;I)Z
 
     move-result v1
 
@@ -29265,7 +29275,7 @@
     .line 2644
     .end local v3    # "instrumentation":Lcom/android/internal/pm/pkg/component/ParsedInstrumentation;
     :cond_9
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPkg()Lcom/android/internal/pm/parsing/pkg/AndroidPackageInternal;
+    invoke-interface {v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->getPkg()Lcom/android/internal/pm/parsing/pkg/AndroidPackageInternal;
 
     move-result-object v1
 
@@ -29279,7 +29289,7 @@
 
     .line 2646
     :cond_a
-    invoke-interface {p1, p5}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
+    invoke-interface {v10, v14}, Lcom/android/server/pm/pkg/PackageStateInternal;->getUserStateOrDefault(I)Lcom/android/server/pm/pkg/PackageUserStateInternal;
 
     move-result-object v3
 
@@ -29290,7 +29300,7 @@
     if-eqz v3, :cond_d
 
     .line 2648
-    invoke-virtual {p0, v2, p5}, Lcom/android/server/pm/ComputerEngine;->canViewInstantApps(II)Z
+    invoke-virtual {v9, v2, v14}, Lcom/android/server/pm/ComputerEngine;->canViewInstantApps(II)Z
 
     move-result v3
 
@@ -29301,26 +29311,26 @@
 
     .line 2652
     :cond_b
-    if-eqz p3, :cond_c
+    if-eqz v12, :cond_c
 
     .line 2653
     return v0
 
     .line 2657
     :cond_c
-    iget-object v1, p0, Lcom/android/server/pm/ComputerEngine;->mInstantAppRegistry:Lcom/android/server/pm/InstantAppRegistry;
+    iget-object v1, v9, Lcom/android/server/pm/ComputerEngine;->mInstantAppRegistry:Lcom/android/server/pm/InstantAppRegistry;
 
     .line 2658
     invoke-static {v2}, Landroid/os/UserHandle;->getAppId(I)I
 
     move-result v3
 
-    invoke-interface {p1}, Lcom/android/server/pm/pkg/PackageStateInternal;->getAppId()I
+    invoke-interface {v10}, Lcom/android/server/pm/pkg/PackageStateInternal;->getAppId()I
 
     move-result v4
 
     .line 2657
-    invoke-virtual {v1, p5, v3, v4}, Lcom/android/server/pm/InstantAppRegistry;->isInstantAccessGranted(III)Z
+    invoke-virtual {v1, v14, v3, v4}, Lcom/android/server/pm/InstantAppRegistry;->isInstantAccessGranted(III)Z
 
     move-result v1
 
@@ -29336,7 +29346,7 @@
 
     .line 2661
     .local v8, "appId":I
-    iget-object v0, p0, Lcom/android/server/pm/ComputerEngine;->mSettings:Lcom/android/server/pm/ComputerEngine$Settings;
+    iget-object v0, v9, Lcom/android/server/pm/ComputerEngine;->mSettings:Lcom/android/server/pm/ComputerEngine$Settings;
 
     invoke-virtual {v0, v8}, Lcom/android/server/pm/ComputerEngine$Settings;->getSettingBase(I)Lcom/android/server/pm/SettingBase;
 
@@ -29344,11 +29354,11 @@
 
     .line 2662
     .local v3, "callingPs":Lcom/android/server/pm/SettingBase;
-    iget-object v0, p0, Lcom/android/server/pm/ComputerEngine;->mAppsFilter:Lcom/android/server/pm/AppsFilterSnapshot;
+    iget-object v0, v9, Lcom/android/server/pm/ComputerEngine;->mAppsFilter:Lcom/android/server/pm/AppsFilterSnapshot;
 
-    move-object v1, p0
+    move-object v1, v9
 
-    move-object v4, p1
+    move-object v4, v10
 
     invoke-interface/range {v0 .. v5}, Lcom/android/server/pm/AppsFilterSnapshot;->shouldFilterApplication(Lcom/android/server/pm/snapshot/PackageDataSnapshot;ILjava/lang/Object;Lcom/android/server/pm/pkg/PackageStateInternal;I)Z
 
@@ -29363,7 +29373,7 @@
     :goto_3
     if-nez v6, :cond_f
 
-    if-nez p6, :cond_f
+    if-nez v15, :cond_f
 
     invoke-static {v2}, Landroid/os/Process;->isSdkSandboxUid(I)Z
 

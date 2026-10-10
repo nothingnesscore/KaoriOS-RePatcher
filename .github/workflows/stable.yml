@@ -121,10 +121,21 @@ jobs:
           (or grab the newest prerelease) and report early - beta bugs fixed fast are
           stable bugs that never happen.
           EOF
-          # Compiled, versioned history (incl. test-suite changes) appended verbatim —
-          # headings demoted one level so they nest under the notes above.
+          # Everything since the previous stable release - the betas that preceded this
+          # version fold into its notes - headings demoted one level so they nest under
+          # the notes above. Sections run newest-first; stop at the first older stable
+          # heading (a version without a dash suffix, ignoring the date after the bracket).
           printf '\n---\n\n' >> notes.md
-          sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' -e 's/^# /## /' CHANGELOG.md >> notes.md
+          awk '
+            /^## \[/ {
+              v = $0
+              sub(/^## \[/, "", v)
+              sub(/\].*$/, "", v)
+              n++
+              if (n > 1 && v !~ /-/) exit
+            }
+            n > 0 { print }
+          ' CHANGELOG.md | sed -e 's/^#### /##### /' -e 's/^### /#### /' -e 's/^## /### /' >> notes.md
           gh release create "v${BASE}" \
             --title "Kaorios RePatcher ${BASE}" \
             --notes-file notes.md \

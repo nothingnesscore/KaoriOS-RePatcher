@@ -61,7 +61,10 @@ object MethodRewrite {
 
     /**
      * Physical parameter slots: `this` plus each entry of the parameter descriptor, unless the
-     * method is static.
+     * method is static. `J` and `D` occupy two slots each in dex (`ins_size`), so they count
+     * twice — a slot-unaware count places `p0` one register too high and the register-encoding
+     * gate then rejects a stock method that assembles fine. An array of either (`[J`) is a
+     * single reference slot.
      *
      * The descriptor is walked rather than split on separators because an array of `L…;` or `[I`
      * contains no separator of its own.
@@ -76,9 +79,14 @@ object MethodRewrite {
         var i = 0
         var total = starts
         while (i < descriptor.length) {
-            while (i < descriptor.length && descriptor[i] == '[') i++
+            var arrays = 0
+            while (i < descriptor.length && descriptor[i] == '[') {
+                arrays++
+                i++
+            }
             if (i >= descriptor.length) throw UnsupportedLayoutException("malformed descriptor: $header")
-            total++
+            val wide = arrays == 0 && (descriptor[i] == 'J' || descriptor[i] == 'D')
+            total += if (wide) 2 else 1
             if (descriptor[i] == 'L') {
                 val end = descriptor.indexOf(';', i)
                 if (end < 0) throw UnsupportedLayoutException("unterminated type descriptor: $header")
@@ -119,7 +127,13 @@ object MethodRewrite {
         val paramFirst = canonicalRegisters - params
         for (n in 0 until params) {
             val raw = "v${paramFirst + n}"
-            if (RAW_REGISTER(raw).containsMatchIn(canonicalized)) {
+            val pattern = Smali.paramAlias(raw)
+            var leftover = false
+            Smali.transformOutside(canonicalized, Smali.LITERAL_OR_COMMENT) { segment ->
+                if (pattern.containsMatchIn(segment)) leftover = true
+                segment
+            }
+            if (leftover) {
                 throw UnsupportedLayoutException("$label: $raw is still addressed as a raw register")
             }
         }
@@ -205,6 +219,4 @@ object MethodRewrite {
     }
 
     private val STRING_LITERAL = Regex("\"(?:[^\"\\\\]|\\\\.)*\"")
-    private fun RAW_REGISTER(name: String) =
-        Regex("(?<![A-Za-z0-9_])${Regex.escape(name)}(?![0-9])")
 }

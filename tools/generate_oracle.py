@@ -95,11 +95,27 @@ FIXTURE_TO_TARGET = {
     "system_server": "SystemServer.smali",
 }
 
+# Fixtures that live in the same directory for AospLayoutsTest but are not differential
+# cases: CorePatch §2 (ReconcilePackageUtils) has no Python patcher at all, and on both
+# aosp15_* shapes the reference is narrower than the engine — it rejects A15's
+# engineGetCertificateChain return layout and the fixture's ComputerEngine carries no
+# shouldFilterApplication — while the engine patches them on real A15 ROMs and the
+# device rebuilds them. Those extensions are pinned by AospLayoutsTest instead; putting
+# them here would encode "the reference refuses, so must the engine" and drop working
+# support for the ROMs most testers run.
+SKIP_FIXTURES = {
+    "aosp15_reconcile_package_utils",
+    "aosp15_androidkeystorespi",
+    "aosp15_computer_engine",
+}
+
 oracle = {}
 INPUTS = {}
 
 for path in sorted((RES / "fixtures").rglob("*.smali")):
     name = path.stem
+    if name in SKIP_FIXTURES:
+        continue
     text = path.read_text(encoding="utf-8")
     filename = next(
         (target for token, target in FIXTURE_TO_TARGET.items() if token in name), None

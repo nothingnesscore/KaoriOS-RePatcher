@@ -1,6 +1,7 @@
 package dev.kaorios.engine.patch
 
 import dev.kaorios.engine.smali.PatchVerificationException
+import dev.kaorios.engine.smali.Smali
 import dev.kaorios.engine.smali.UnsupportedLayoutException
 
 /** One patchable file plus the functions that patch and verify it. */
@@ -278,6 +279,12 @@ object PatchEngine {
             // There is nothing to verify in text the patcher never touched — and its verifier is
             // written to recognise the injected block, which by definition is not there.
             if (result.status != PatchStatus.NOT_TARGET) target.verify(result.content)
+            // A patch that grew a register directive can leave stock instructions addressing
+            // operands their opcode cannot encode. That text assembles nowhere: the failure
+            // would surface at reassembly and kill the whole run. The reference refuses such a
+            // target instead of emitting it, so do the same — UnsupportedLayoutException lands
+            // the target in UNSUPPORTED_LAYOUT with [content] byte-identical.
+            if (result.content != content) Smali.verifyRegisterEncoding(result.content, fileName)
             result
         } catch (e: UnsupportedLayoutException) {
             PatchOutcome(PatchStatus.UNSUPPORTED_LAYOUT, content, e.message)
