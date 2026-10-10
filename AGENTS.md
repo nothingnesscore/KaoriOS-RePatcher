@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 127-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 132-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -418,6 +418,17 @@ mismatch, independent of the tree filter.
   hooks the runtime expects — and refuse one where a supplied runtime never reached
   `framework.jar`. `PatchMode.BUILD_SPOOF` is the only exemption: it rewrites `Build` /
   `Build$VERSION` and injects no call site, so it legitimately runs without a runtime dex.
+- **Dexes at the 65536 method-id ceiling get their patched classes relocated.** On A17 Global
+  `framework.jar/classes3.dex` ships with `method_ids_size = 65535`; substituting the keystore
+  classes (which inject new `KaoriosHook` references) pushes the table past the 16-bit invoke
+  ceiling and DexPool refuses to emit `Unsigned short value out of range: 65537`. The fix lives
+  in `DexArchiveRoundTrip.rebuild`: a `DexRoundTrip.MethodIdOverflow` during `writeMergedDex`
+  defers the slice, then `relocateOverfullSlices` strips the patched classes out of the full dex
+  and adds them to a non-deferred dex in the same jar that has headroom. The classloader loads
+  every dex in the jar, so relocation is transparent at runtime. The relocated classes must be
+  *removed* from the source, not just copied to the host — two definitions of the same class
+  across dexes is a hard ART error. `MethodIdOverflowRelocationTest` pins the detection; the
+  end-to-end case is the A17 CLI round trip (`local-work/tester/a17_global/cli_work`).
 
 ## UI
 
@@ -515,7 +526,7 @@ app query ever stamps the flag. Toolbox's own status line only reads the raw fla
   `y31` → `e41(pkg, 0, 1)` → `ex.f` JSON), after which opening that app can re-trigger the stamp.
 - 10 new engine tests live in `AppsFilterBasePatchTest` (shape, idempotency, NOT_TARGET
   byte-identity, label collision, verify rejections, `.locals`/`.registers` variants); suite is
-  now 127 tests, all green.
+  now 132 tests, all green.
 
 Verified on device (previous, 7-dex build): the output `framework.jar` defined `KaoriosHook` (334
 classes); `classes2/4/5/6.dex` were SHA-256 identical to stock; the emitted guard digest for

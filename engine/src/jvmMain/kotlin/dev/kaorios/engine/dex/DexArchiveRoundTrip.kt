@@ -2,6 +2,9 @@ package dev.kaorios.engine.dex
 
 import com.android.tools.smali.dexlib2.DexFileFactory
 import com.android.tools.smali.dexlib2.Opcodes
+import com.android.tools.smali.dexlib2.iface.ClassDef
+import com.android.tools.smali.dexlib2.iface.DexFile
+import com.android.tools.smali.dexlib2.writer.pool.DexPool
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -112,6 +115,7 @@ class DexArchiveRoundTrip(private val apiLevel: Int = DexRoundTrip.DEFAULT_API) 
         val patchedClasses = mutableListOf<String>()
         val scratch = File(disassembly.smaliRoot.parentFile, "${disassembly.artifactName}.dex-out")
 
+        val deferred = mutableListOf<DeferredSlice>()
         ZipFile(disassembly.source).use { zip ->
             for (slice in disassembly.slices) {
                 val outDir = File(disassembly.smaliRoot, "${disassembly.artifactName}/${slice.entryName}")
@@ -143,10 +147,18 @@ class DexArchiveRoundTrip(private val apiLevel: Int = DexRoundTrip.DEFAULT_API) 
                 val original = DexFileFactory.loadDexFile(staged, Opcodes.forApi(apiLevel))
 
                 val merged = File(scratch, "merged-${slice.entryName}")
-                DexRoundTrip.writeMergedDex(original, replacements, merged)
-                changedDexes[slice.entryName] = merged.readBytes()
-                patchedClasses += replacements.keys.sorted()
+                try {
+                    DexRoundTrip.writeMergedDex(original, replacements, merged)
+                    changedDexes[slice.entryName] = merged.readBytes()
+                    patchedClasses += replacements.keys.sorted()
+                } catch (e: DexRoundTrip.MethodIdOverflow) {
+                    // This dex is already at the 65536 method-id ceiling. Defer the
+                    // replacements; they will be relocated to a dex that has headroom.
+                    deferred += DeferredSlice(slice.entryName, staged, replacements)
+                }
             }
+
+            relocateOverfullSlices(zip, scratch, disassembly, deferred, changedDexes, patchedClasses)
         }
 
         val runtimeHost = runtimeDex?.let { mergeRuntime(disassembly, changedDexes, it) }
@@ -226,6 +238,90 @@ class DexArchiveRoundTrip(private val apiLevel: Int = DexRoundTrip.DEFAULT_API) 
     private fun readEntry(source: File, name: String): ByteArray = ZipFile(source).use { zip ->
         val entry = zip.getEntry(name) ?: error("${source.name} lost $name")
         zip.getInputStream(entry).readBytes()
+    }
+
+    private data class DeferredSlice(
+        val entryName: String,
+        val stagedOriginal: File,
+        val replacements: Map<String, ClassDef>,
+    )
+
+    /**
+     * Handles slices whose merge would push their method table past the 65536 invoke-index
+     * ceiling. For each deferred slice: strip the patched classes out of the full dex (writing
+     * the remaining classes normally), then add the patched classes to a different dex in the
+     * same jar that has room. The classloader loads every dex in the jar, so relocating a class
+     * between dexes within one archive is transparent at runtime.
+     */
+    private fun relocateOverfullSlices(
+        zip: ZipFile,
+        scratch: File,
+        disassembly: Disassembly,
+        deferred: List<DeferredSlice>,
+        changedDexes: MutableMap<String, ByteArray>,
+        patchedClasses: MutableList<String>,
+    ) {
+        if (deferred.isEmpty()) return
+
+        // Candidate host dexes: every slice that was NOT itself deferred, tried in order.
+        // Hosts are re-checked per deferred slice because a successful relocation adds methods.
+        val nonDeferred = disassembly.slices.filter { s ->
+            deferred.none { it.entryName == s.entryName }
+        }
+
+        for (d in deferred) {
+            val original = DexFileFactory.loadDexFile(d.stagedOriginal, Opcodes.forApi(apiLevel))
+            val moved = d.replacements.keys
+
+            // 1. Write the full dex WITHOUT the relocated classes.
+            //    Removing classes only shrinks the method table, so this cannot overflow.
+            val stripped = File(scratch, "stripped-${d.entryName}")
+            val remaining = original.classes
+                .filter { it.type !in moved }
+            DexPool.writeTo(stripped.absolutePath, object : DexFile {
+                override fun getClasses(): Set<ClassDef> = remaining.toSet()
+                override fun getOpcodes(): Opcodes = original.opcodes
+            })
+            changedDexes[d.entryName] = stripped.readBytes()
+            patchedClasses += moved.sorted()
+
+            // 2. Pick a host with room and add the relocated classes there.
+            var relocated = false
+            for (host in nonDeferred) {
+                if (host.entryName == d.entryName) continue
+                val hostStaged = File(scratch, "host-${host.entryName}")
+                if (!hostStaged.isFile) {
+                    val he = zip.getEntry(host.entryName) ?: continue
+                    hostStaged.writeBytes(zip.getInputStream(he).readBytes())
+                }
+                val hostFile = try {
+                    // If this host was already rewritten (e.g. a prior relocation), load from
+                    // the rewritten bytes instead of the original zip entry.
+                    val base = changedDexes[host.entryName] ?: hostStaged.readBytes()
+                    val tmp = File(scratch, "host2-${host.entryName}")
+                    tmp.writeBytes(base)
+                    val hostDex = DexFileFactory.loadDexFile(tmp, Opcodes.forApi(apiLevel))
+
+                    val out = File(scratch, "relocated-${d.entryName}-in-${host.entryName}")
+                    DexRoundTrip.writeAugmentedDex(hostDex, d.replacements.values.toList(), out)
+                    out
+                } catch (e: Exception) {
+                    // Host rejected the merge (no room / collision); try the next candidate.
+                    continue
+                }
+                changedDexes[host.entryName] = hostFile.readBytes()
+                relocated = true
+                break
+            }
+
+            if (!relocated) {
+                throw IllegalStateException(
+                    "${disassembly.artifactName}: ${d.entryName} is at the dex method-id " +
+                        "ceiling and no other dex in the jar has room to host " +
+                        "${moved.joinToString(", ")}. Cannot produce a bootable image.",
+                )
+            }
+        }
     }
 
     /**

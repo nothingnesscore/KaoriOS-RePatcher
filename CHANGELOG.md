@@ -7,6 +7,20 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.6] - 2026-10-10
+
+- **Fix — A17 Global reassembly crash at the dex method-id ceiling:** on the A17 Global
+  HOS4 ROM, `framework.jar/classes3.dex` ships with `method_ids_size = 65535` — the dex
+  16-bit invoke-index limit. Substituting the keystore classes (which inject new
+  `KaoriosHook` references) pushed the table past 65536 and reassembly died with
+  `Unsigned short value out of range: 65537` while writing `BaseBundle.deepCopyValue`.
+  The rebuild loop now catches `MethodIdOverflow`, strips the patched classes out of the
+  full dex, and relocates them to a dex in the same jar with headroom — the classloader
+  loads every dex, so the move is transparent at boot. End-to-end against the reported
+  device's `framework.jar`: patched 19/19, all dexes under the ceiling, module emitted.
+- **Tests — suite 127 → 132:** `MethodIdOverflowRelocationTest` pins the overflow
+  detection and the distinct exception type the rebuild loop catches.
+
 ## [v1.2.0-beta.5] - 2026-10-10
 
 - **Fix — register-growth reassembly crash (reported on Android 16):** growing a patcher's

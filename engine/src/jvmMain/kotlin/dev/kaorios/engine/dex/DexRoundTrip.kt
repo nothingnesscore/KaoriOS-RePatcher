@@ -133,6 +133,10 @@ object DexRoundTrip {
      * Classes the patch did not produce are carried over untouched. [DexPool] re-interns and
      * renumbers every reference, so replacement `ClassDef`s are free to carry indices from the
      * small dex they were assembled into.
+     *
+     * @throws MethodIdOverflow when the merge would push the method table past 65536 entries.
+     *   Invoke instructions encode a 16-bit method index, so any method that is *called* must
+     *   live below that ceiling; a dex already at the limit cannot absorb new call targets.
      */
     fun writeMergedDex(
         original: DexFile,
@@ -140,8 +144,37 @@ object DexRoundTrip {
         output: File,
     ) {
         output.parentFile?.mkdirs()
-        DexPool.writeTo(output.absolutePath, SubstitutedDexFile(original, replacements))
+        try {
+            DexPool.writeTo(output.absolutePath, SubstitutedDexFile(original, replacements))
+        } catch (e: Exception) {
+            if (isMethodIdOverflow(e)) {
+                throw MethodIdOverflow(
+                    "merge would exceed the dex method-id ceiling: ${e.message}",
+                    e,
+                )
+            }
+            throw e
+        }
     }
+
+    /** True when [e] (or its causes) is the dexlib2 16-bit method-index overflow. */
+    fun isMethodIdOverflow(e: Throwable): Boolean {
+        var cur: Throwable? = e
+        while (cur != null) {
+            val msg = cur.message ?: ""
+            if (msg.contains("Unsigned short value out of range") ||
+                msg.contains("method_idx") && msg.contains("out of range")
+            ) {
+                return true
+            }
+            cur = cur.cause
+        }
+        return false
+    }
+
+    /** Raised when a merge would produce a dex ART cannot invoke from. */
+    class MethodIdOverflow(message: String, cause: Throwable? = null) :
+        IllegalStateException(message, cause)
 
     /**
      * Descriptors the runtime dex is allowed to displace when it moves into a host dex.
