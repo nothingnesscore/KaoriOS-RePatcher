@@ -8,6 +8,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.kaorios.patcher.storage.DownloadsStore
 import dev.kaorios.patcher.ui.PatchViewModel
@@ -16,8 +19,11 @@ import dev.kaorios.patcher.ui.navigation.PatchActions
 import dev.kaorios.patcher.ui.service.PrefsRepository
 import dev.kaorios.patcher.ui.theme.KaoriosPatcherTheme
 import dev.kaorios.patcher.ui.theme.PrefDefaults
+import dev.kaorios.patcher.ui.theme.CHANNEL_BETA
+import dev.kaorios.patcher.ui.theme.PREF_UPDATE_CHANNEL
 import dev.kaorios.patcher.workspace.Workspace
 import java.io.File
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +41,22 @@ class MainActivity : ComponentActivity() {
             val log by viewModel.log.collectAsState()
 
             LaunchedEffect(Unit) { viewModel.refresh() }
+
+            // Check for updates whenever the app enters the foreground (throttled inside
+            // the ViewModel). The channel preference is read once per check.
+            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+            androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_START) {
+                        lifecycleScope.launch {
+                            val channel = prefs.getString(PREF_UPDATE_CHANNEL, CHANNEL_BETA)
+                            viewModel.checkForUpdates(channel)
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
 
             // Deliberately NO LocalNavigationEventDispatcherOwner provider here. It existed
             // because ComponentActivity up to 1.9.3 published no owner and Miuix's
@@ -68,6 +90,11 @@ class MainActivity : ComponentActivity() {
                         },
                         onFlash = viewModel::flashModule,
                         onExportLog = viewModel::exportLog,
+                        onInstallUpdate = viewModel::installUpdate,
+                        onDismissUpdate = viewModel::dismissUpdate,
+                        onChannelChange = { channel ->
+                            viewModel.checkForUpdates(channel, force = true)
+                        },
                     ),
                 )
             }

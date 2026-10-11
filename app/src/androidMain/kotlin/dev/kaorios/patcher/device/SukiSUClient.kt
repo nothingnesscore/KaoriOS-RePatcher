@@ -59,7 +59,15 @@ class SukiSUClient {
         return fallback
     }
 
-    fun kernelRelease(): String = getProperty("ro.kernel.version", System.getProperty("os.version").orEmpty())
+    /**
+     * Full kernel release string (`6.1.138-android14-4-g…`), read via `uname -r`.
+     *
+     * `ro.kernel.version` only publishes the major.minor (`6.1`), which cannot be matched
+     * against GKI patterns — the VFS warning needs the full release to check for `-androidNN-`.
+     */
+    fun kernelRelease(): String = run(listOf("sh", "-c", "uname -r")).getOrNull()?.trim()
+        ?.ifEmpty { null }
+        ?: getProperty("ro.kernel.version", System.getProperty("os.version").orEmpty())
 
     /**
      * Whether [path] is a regular file on the device.

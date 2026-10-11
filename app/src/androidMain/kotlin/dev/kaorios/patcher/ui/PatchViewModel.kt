@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.kaorios.engine.module.KsuModuleBuilder
 import dev.kaorios.engine.module.MountMode
 import dev.kaorios.engine.patch.PatchSelection
+import dev.kaorios.patcher.AppVersion
 import dev.kaorios.patcher.device.DeviceSpec
 import dev.kaorios.patcher.device.RootStatus
 import dev.kaorios.patcher.device.SukiSUClient
@@ -16,6 +17,7 @@ import dev.kaorios.patcher.pipeline.TargetOutcome
 import dev.kaorios.patcher.pipeline.describe
 import dev.kaorios.patcher.storage.DownloadsStore
 import dev.kaorios.patcher.storage.ReleaseSync
+import dev.kaorios.patcher.storage.UpdateChecker
 import dev.kaorios.patcher.workspace.Workspace
 import java.io.File
 import java.security.MessageDigest
@@ -62,6 +64,12 @@ data class PatchUiState(
     /** Whether "All files access" is granted, i.e. `Download/` is reachable. */
     val downloadsGranted: Boolean = false,
     val flash: FlashState = FlashState.Idle,
+    /** Latest update found by [checkForUpdates]; `null` when none or the check failed. */
+    val update: UpdateChecker.Result? = null,
+    /** Whether an update check is currently in flight. */
+    val updateChecking: Boolean = false,
+    /** Epoch millis of the last successful update check, for throttling. */
+    val lastUpdateCheckAt: Long = 0L,
 ) {
     /**
      * What the engine will be asked to patch, derived from the detected device.
@@ -102,6 +110,8 @@ class PatchViewModel(
      */
     private val releaseSync = ReleaseSync(workspace.assetsDir)
 
+    private val updateChecker = UpdateChecker()
+
     private val _state = MutableStateFlow(PatchUiState())
     val state: StateFlow<PatchUiState> = _state.asStateFlow()
 
@@ -140,6 +150,91 @@ class PatchViewModel(
     fun refreshStorageAccess() {
         viewModelScope.launch {
             _state.update { it.copy(downloadsGranted = downloads.granted) }
+        }
+    }
+
+    /**
+     * Checks GitHub for an update on the preferred channel, throttled to once per hour.
+     *
+     * Called from the lifecycle observer whenever the app enters the foreground. A failed
+     * check is silent — the UI simply stays without an update banner.
+     */
+    fun checkForUpdates(channel: String, force: Boolean = false) {
+        val state = _state.value
+        val now = System.currentTimeMillis()
+        if (!force && state.updateChecking) return
+        if (!force && now - state.lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS) return
+
+        viewModelScope.launch {
+            _state.update { it.copy(updateChecking = true) }
+            val result = withContext(Dispatchers.IO) {
+                updateChecker.check(
+                    currentVersion = AppVersion.versionName,
+                    currentIsBeta = AppVersion.isBeta,
+                    preferredChannel = channel,
+                )
+            }
+            _state.update {
+                it.copy(
+                    update = result,
+                    updateChecking = false,
+                    lastUpdateCheckAt = now,
+                )
+            }
+        }
+    }
+
+    /** Dismisses the update banner without installing. */
+    fun dismissUpdate() {
+        _state.update { it.copy(update = null) }
+    }
+
+    /**
+     * Downloads the update APK and installs it through the root shell.
+     *
+     * The APK is fetched from the GitHub release asset URL, written to the app cache, then
+     * installed with `pm install -r` via su. The update banner is cleared on success so the
+     * user is not prompted again for the same version.
+     */
+    fun installUpdate() {
+        val update = _state.value.update ?: return
+        val apkUrl = update.apkUrl ?: run {
+            PatchLog.warn("update: no APK asset on ${update.tag}")
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(updateChecking = true) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tmp = File.createTempFile("update", ".apk", workspace.logDir)
+                    try {
+                        val conn = java.net.URL(apkUrl).openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 15_000
+                        conn.readTimeout = 60_000
+                        conn.instanceFollowRedirects = true
+                        conn.inputStream.use { input ->
+                            tmp.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        conn.disconnect()
+
+                        // Install through the root shell; the app already requires su.
+                        val exit = client.runAsRoot("pm install -r ${tmp.absolutePath}")
+                            .getOrElse { error(it.message ?: "su failed") }
+                        if (!exit.contains("Success")) error("pm install: $exit")
+                        PatchLog.info("update: installed ${update.tag}")
+                        true
+                    } finally {
+                        tmp.delete()
+                    }
+                }
+            }
+            _state.update { it.copy(updateChecking = false) }
+            result.onSuccess {
+                _state.update { it.copy(update = null) }
+            }.onFailure { e ->
+                PatchLog.warn("update: install failed — ${e.message}")
+            }
         }
     }
 
@@ -572,6 +667,9 @@ private const val MODULE_ZIP = "kaorios_patcher.zip"
 /** Session log, kept in the workspace and mirrored to `Download/` under this name. */
 private const val LOG_FILE = "patch.log"
 private const val LOG_EXPORT = "kaorios_patcher.log"
+
+/** Minimum interval between automated update checks, to avoid draining the battery. */
+private const val UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000L // 1 hour
 
 /** Streams the digest so an 88 MB jar is never held in memory. */
 private fun File.sha256(): String {

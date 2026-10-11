@@ -97,6 +97,12 @@ data class PatchActions(
     val onFlash: () -> Unit,
     /** Copies the session log into `Download/` so it can be pulled off the device. */
     val onExportLog: () -> Unit,
+    /** Downloads the update APK and launches the package installer. */
+    val onInstallUpdate: () -> Unit = {},
+    /** Dismisses the update banner without installing. */
+    val onDismissUpdate: () -> Unit = {},
+    /** Called when the user switches update channel in Settings; triggers a force check. */
+    val onChannelChange: (String) -> Unit = {},
 )
 
 private data class RootDestination(
@@ -379,6 +385,7 @@ fun KaoriosPatcherApp(
                             contentPadding = PaddingValues(0.dp),
                             scrollState = settingsScrollState,
                             onClear = gatedActions.onClear,
+                            onChannelChange = actions.onChannelChange,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .nestedScroll(settingsBehavior.nestedScrollConnection),
@@ -503,6 +510,8 @@ private fun PageFor(
             onClear = actions.onClear,
             onRefresh = actions.onRefresh,
             onGrantStorage = actions.onGrantStorage,
+            onInstallUpdate = actions.onInstallUpdate,
+            onDismissUpdate = actions.onDismissUpdate,
             modifier = modifier,
         )
         1 -> ModulePage(

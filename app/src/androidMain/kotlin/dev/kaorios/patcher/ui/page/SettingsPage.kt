@@ -53,6 +53,7 @@ fun SettingsPage(
     contentPadding: PaddingValues,
     scrollState: ScrollState,
     onClear: () -> Unit,
+    onChannelChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     PageColumn(
@@ -61,7 +62,7 @@ fun SettingsPage(
         modifier = modifier,
     ) {
         AppearanceSection(prefs)
-        UpdatesSection(prefs)
+        UpdatesSection(prefs, onChannelChange)
         WorkspaceSection(state, onClear)
         EnvironmentSection(state)
     }
@@ -137,7 +138,7 @@ private fun AppearanceSection(prefs: PrefsRepository) {
 }
 
 @Composable
-private fun UpdatesSection(prefs: PrefsRepository) {
+private fun UpdatesSection(prefs: PrefsRepository, onChannelChange: (String) -> Unit) {
     val channel = rememberStringPreference(prefs, PREF_UPDATE_CHANNEL, CHANNEL_BETA)
     val channelLabels = Channels.map {
         stringResource(
@@ -160,7 +161,9 @@ private fun UpdatesSection(prefs: PrefsRepository) {
             items = channelLabels,
             selectedIndex = Channels.indexOf(channel).coerceIn(0, Channels.lastIndex),
             onSelectedIndexChange = { index ->
-                prefs.putString(PREF_UPDATE_CHANNEL, Channels[index])
+                val newChannel = Channels[index]
+                prefs.putString(PREF_UPDATE_CHANNEL, newChannel)
+                onChannelChange(newChannel)
             },
             icon = MiuixIcons.Info,
         )

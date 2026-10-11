@@ -7,6 +7,29 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.8] - 2026-10-11
+
+- **Feature — in-app update checker:** the app now queries the GitHub releases API when it
+  enters the foreground (throttled to once per hour) and shows an update banner when a
+  newer release is available. The banner states whether a re-patch is needed (cosmetic vs
+  patch-related changes), shows a Beta/Stable channel badge, and adds a caution when the
+  offer is a cross-channel switch. Install downloads the APK and runs `pm install -r`
+  through the root shell; Later dismisses the banner.
+- **Feature — cross-channel update offers:** a beta user is offered a newer stable when
+  one supersedes their build; a stable user who switches the channel to beta is offered
+  the newest beta only when it supersedes, with a bleeding-edge caution message. The
+  Settings channel dropdown triggers a force-check on switch.
+- **Fix — VFS / Hybrid Mount integration:** `kernelRelease()` now reads `uname -r`
+  instead of `ro.kernel.version` (which reports `6.1` without the `android` infix, making
+  the GKI warning fire spuriously on every boot). `customize.sh` checks Hybrid Mount
+  availability at flash time and warns when the module is absent; `service.sh` re-registers
+  VFS rules on every boot (the kernel module does not persist them) by loading the correct
+  `.ko` for the device's Android/kernel and adding a `vfs rule add` per overlay path.
+  `verify_module.py`'s mount marker updated to match.
+- **Tests — suite 133 → 134:** `hybridmount checks availability at flash and registers
+  rules every boot` pins the customize.sh availability check and the service.sh rule
+  registration.
+
 ## [v1.2.0-beta.7] - 2026-10-10
 
 - **Fix — attestation / Play Integrity now work out of the box:** the module ships the

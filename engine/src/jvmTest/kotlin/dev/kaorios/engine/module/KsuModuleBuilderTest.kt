@@ -276,6 +276,33 @@ class KsuModuleBuilderTest {
     }
 
     /**
+     * Hybrid Mount v6+ lives at `/data/adb/modules/hybrid_mount/` and exposes its VFS backend
+     * through the `hybrid-mount` binary. Rules are not persisted by the kernel module, so
+     * `customize.sh` only checks availability while `service.sh` re-registers rules on every
+     * boot. Falls back to magic mount when Hybrid Mount is absent.
+     */
+    @Test
+    fun `hybridmount checks availability at flash and registers rules every boot`() {
+        val entries = pack(bundle(*jars().toTypedArray(), mountMode = MountMode.HYBRIDMOUNT))
+        val customize = text(entries, "customize.sh")
+        val service = text(entries, "service.sh")
+
+        // customize.sh checks for the Hybrid Mount binary and warns when absent.
+        assertContains(customize, "/data/adb/modules/hybrid_mount/hybrid-mount")
+        assertContains(customize, "Hybrid Mount not installed")
+
+        // service.sh registers VFS rules on every boot (rules are not persisted).
+        assertContains(service, "HM_BIN=/data/adb/modules/hybrid_mount/hybrid-mount")
+        assertContains(service, "vfs rule add")
+        assertContains(service, "/data/adb/modules/hybrid_mount/vfs/binaries")
+        assertContains(service, "vfs load")
+
+        // The rule targets are derived from the overlay paths.
+        assertContains(service, "--path /system/framework/framework.jar")
+        assertContains(service, "--target \$MODDIR/system/framework/framework.jar")
+    }
+
+    /**
      * The uninstall script removes the attestation identity bundle this module deployed at
      * flash time, plus the package cache. `/data/adb/kaorios` is created by `customize.sh`,
      * so uninstall cleans it along with our own residue.

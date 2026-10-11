@@ -296,7 +296,7 @@ PRIVAPP_PERMISSIONS = [
 # has to come first: an abort after these has nothing left to roll back.
 MOUNT_MARKERS = [
     "Magic mount active",
-    "hybridmount vfs rule add",
+    "vfs rule add",
     'cp -f "$MODPATH/system/',
 ]
 

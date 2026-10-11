@@ -81,8 +81,9 @@
 
     <!-- VFS -->
     <string name="vfs_title">Serve through hybridmount</string>
-    <string name="vfs_summary">Serve patched files through hybridmount instead of writing to /system</string>
-    <string name="vfs_kernel_warning">Kernel %1$s is not a recognised GKI build; the module falls back to a /system overlay</string>
+    <string name="vfs_summary">Serve patched files through Hybrid Mount VFS instead of writing to /system</string>
+    <string name="vfs_kernel_warning">Kernel %1$s is not a recognised GKI build; the module falls back to magic mount</string>
+    <string name="vfs_hybrid_mount_note">Requires Hybrid Mount v6+ installed. VFS rules are registered on every boot via the Hybrid Mount binary. Falls back to magic mount if Hybrid Mount is not available.</string>
 
     <!-- Actions -->
     <string name="action_refresh">Refresh</string>
@@ -184,4 +185,21 @@
     <string name="dialog_confirm_install">Install</string>
     <string name="dialog_confirm_clear">Clear</string>
     <string name="dialog_cancel">Cancel</string>
+
+    <!-- Update dialog -->
+    <string name="update_title">Update available</string>
+    <string name="update_version">Version %1$s</string>
+    <string name="update_current">You have %1$s</string>
+    <string name="update_repatch_title">Re-patch required</string>
+    <string name="update_repatch_body">This update contains patch-related changes. After updating the app, uninstall the old module and re-patch for the fixes to take effect.</string>
+    <string name="update_cosmetic_title">No re-patch needed</string>
+    <string name="update_cosmetic_body">This update is cosmetic (UI/theme changes). You can update the app without re-patching.</string>
+    <string name="update_channel_caution">Cross-channel update: this %1$s build supersedes your current %2$s build. Proceed with caution — it may contain bleeding-edge changes.</string>
+    <string name="update_beta_badge">Beta</string>
+    <string name="update_stable_badge">Stable</string>
+    <string name="update_action_install">Install</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_download_failed">Download failed: %1$s</string>
+    <string name="update_checking">Checking for updates…</string>
 </resources>

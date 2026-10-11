@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.kaorios.engine.patch.PatchStatus
+import dev.kaorios.patcher.AppVersion
 import dev.kaorios.patcher.R
 import dev.kaorios.patcher.device.DeviceSpec
 import dev.kaorios.patcher.device.RomType
@@ -33,6 +34,7 @@ import dev.kaorios.patcher.ui.component.SectionCard
 import dev.kaorios.patcher.ui.component.SettingSwitch
 import dev.kaorios.patcher.ui.component.StatusBadge
 import dev.kaorios.patcher.ui.component.StatusTone
+import dev.kaorios.patcher.ui.component.UpdateBanner
 import dev.kaorios.patcher.ui.component.resolve
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
@@ -68,6 +70,8 @@ fun PatchPage(
     onClear: () -> Unit,
     onRefresh: () -> Unit,
     onGrantStorage: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onDismissUpdate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PageColumn(
@@ -75,6 +79,15 @@ fun PatchPage(
         scrollState = scrollState,
         modifier = modifier,
     ) {
+        if (state.update != null) {
+            UpdateBanner(
+                update = state.update,
+                currentVersion = AppVersion.shortLabel,
+                currentIsBeta = AppVersion.isBeta,
+                onInstall = onInstallUpdate,
+                onDismiss = onDismissUpdate,
+            )
+        }
         DeviceSection(state.device, state.root)
         if (!state.downloadsGranted) {
             StorageAccessSection(onGrantStorage)
@@ -284,6 +297,14 @@ private fun VfsSection(
                 text = stringResource(R.string.vfs_kernel_warning, kernel),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 color = MiuixTheme.colorScheme.error,
+                style = MiuixTheme.textStyles.footnote2,
+            )
+        }
+        if (enabled) {
+            Text(
+                text = stringResource(R.string.vfs_hybrid_mount_note),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
                 style = MiuixTheme.textStyles.footnote2,
             )
         }

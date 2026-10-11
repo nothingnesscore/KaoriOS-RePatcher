@@ -11,6 +11,10 @@ import dev.kaorios.patcher.BuildConfig
  */
 object AppVersion {
 
+    /** Raw version name from BuildConfig, e.g. `1.2.0` or `1.2.0-beta.7`. */
+    val versionName: String
+        get() = BuildConfig.VERSION_NAME
+
     /** `beta.5` from `1.2.0-beta.5`, `stable.3` from `1.2.0` + versionCode 3. */
     val shortLabel: String
         get() = parseShortLabel(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
