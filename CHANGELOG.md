@@ -7,6 +7,20 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.7] - 2026-10-10
+
+- **Fix — attestation / Play Integrity now work out of the box:** the module ships the
+  attestation identity bundle (`data/adb/kaorios/`: Keybox.xml, Pif-props.json,
+  device-model.json, app-props.json) that the runtime's software-keypair hook needs to
+  sign the attestation chain. Without it, hardware attestation failed and Play Store
+  reported the device as uncertified. `customize.sh` deploys the bundle at flash time;
+  `uninstall.sh` removes it on uninstall.
+- **Feature — `action.sh pif` mode:** redeploys the identity bundle and purges the GMS
+  Play Integrity verdict cache, so a Toolbox update to Pif-props.json takes effect
+  immediately without a reboot.
+- **Tests — suite 132 → 133:** `the attestation identity bundle is shipped and deployed`
+  pins the four config entries, the Keybox XML structure, and the customize.sh deploy step.
+
 ## [v1.2.0-beta.6] - 2026-10-10
 
 - **Fix — A17 Global reassembly crash at the dex method-id ceiling:** on the A17 Global

@@ -88,6 +88,14 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
             zip.putEntryText("system.prop", SYSTEM_PROP)
             zip.putEntryText("META-INF/com/google/android/update-binary", UPDATE_BINARY)
             zip.putEntryText("META-INF/com/google/android/updater-script", UPDATER_SCRIPT)
+            // The attestation identity bundle. Without a Keybox the runtime's software-keypair
+            // hook has nothing to sign the attestation chain with, so hardware attestation
+            // fails and Play Integrity reports the device as uncertified. The PIF/device
+            // props give GMS a certified Pixel identity to evaluate against.
+            zip.putResource("data/adb/kaorios/Keybox.xml", CONFIG_KEYBOX_RESOURCE)
+            zip.putResource("data/adb/kaorios/Pif-props.json", CONFIG_PIF_RESOURCE)
+            zip.putResource("data/adb/kaorios/device-model.json", CONFIG_DEVICE_MODEL_RESOURCE)
+            zip.putResource("data/adb/kaorios/app-props.json", CONFIG_APP_PROPS_RESOURCE)
             for (artifact in bundle.artifacts) {
                 zip.putFile(artifact.source, artifact.modulePath)
             }
@@ -247,6 +255,26 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
             appendLine("ui_print \"- KaoriOS Toolbox staged as a priv-app\"")
             appendLine()
         }
+        // Deploy the attestation identity bundle. The runtime reads the keybox from
+        // /data/adb/kaorios/Keybox.xml (or the Toolbox Settings value); without it the
+        // software-keypair hook cannot produce a valid attestation chain and Play
+        // Integrity fails. The PIF/device props give GMS a certified identity.
+        appendLine("# Deploy Kaorios configuration and Keybox attestation bundle.")
+        appendLine("if [ -d \"\$MODPATH/data/adb/kaorios\" ]; then")
+        appendLine("  mkdir -p /data/adb/kaorios")
+        appendLine("  cp -rf \"\$MODPATH/data/adb/kaorios/\"* /data/adb/kaorios/ 2>/dev/null")
+        appendLine("  chmod 0755 /data/adb/kaorios")
+        appendLine("  chmod 0644 /data/adb/kaorios/* 2>/dev/null")
+        appendLine("  ui_print \"- Kaorios configuration and Keybox deployed\"")
+        appendLine("fi")
+        appendLine()
+        // Purge the GMS Play Integrity verdict cache; stale entries survive a prop change
+        // and would keep reporting the pre-patch (uncertified) state.
+        appendLine("rm -f /data/data/com.google.android.gms/cache/pif.prop \\")
+        appendLine("      /data/data/com.google.android.gms/pif.prop \\")
+        appendLine("      /data/data/com.google.android.gms/cache/pif.json \\")
+        appendLine("      /data/data/com.google.android.gms/pif.json")
+        appendLine()
         // framework.jar and services.jar changed underneath it, so the cached package metadata
         // has to go; keeping it leaves PackageManager reading dexes that no longer exist.
         appendLine("rm -rf /data/system/package_cache/*")
@@ -441,12 +469,17 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
      * stock framework so a toggle takes effect without a reboot.
      *
      * The device has no KernelSU manager app, so nothing else can press this button — the app
-     * and `su -c` invoke it directly. The manager would call it with no arguments, which is the
-     * default branch; `action.sh clear` deletes the spoofed properties instead of applying them.
+     * and `su -c` invoke it directly. Modes:
+     * - `reset` (default): re-applies the spoofed props and purges caches (what a manager
+     *   button press does).
+     * - `clear`: deletes the spoofed properties instead of applying them.
+     * - `pif`: redepplies the PIF/device identity bundle from the module tree and purges the
+     *   GMS verdict cache — use after the Toolbox updates Pif-props.json so GMS re-evaluates.
      */
     private fun actionScript(): String = buildString {
         appendLine("#!/system/bin/sh")
-        appendLine("# KernelSU/APatch/Magisk action button. Optional argument: reset (default) | clear.")
+        appendLine("# KernelSU/APatch/Magisk action button.")
+        appendLine("# Usage: action.sh [reset|clear|pif]  (default: reset)")
         appendLine("MODDIR=\"\${0%/*}\"")
         appendLine("[ ! -f \"\$MODDIR/service.sh\" ] && MODDIR=\"/data/adb/modules/$moduleId\"")
         appendLine()
@@ -459,6 +492,20 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
         appendLine("    kaorios_props_clear")
         appendLine("  else")
         appendLine("    echo \"props.sh not found in \$MODDIR\"")
+        appendLine("  fi")
+        appendLine("elif [ \"\$MODE\" = \"pif\" ]; then")
+        appendLine("  echo \"Kaorios Patcher: refreshing PIF identity\"")
+        appendLine("  # Redeploy the identity bundle so a Toolbox update takes effect immediately.")
+        appendLine("  if [ -d \"\$MODDIR/data/adb/kaorios\" ]; then")
+        appendLine("    mkdir -p /data/adb/kaorios")
+        appendLine("    cp -rf \"\$MODDIR/data/adb/kaorios/\"* /data/adb/kaorios/ 2>/dev/null")
+        appendLine("    chmod 0644 /data/adb/kaorios/* 2>/dev/null")
+        appendLine("    echo \"  identity bundle redeployed\"")
+        appendLine("  fi")
+        appendLine("  # Re-apply props so the spoofed identity is live before GMS re-evaluates.")
+        appendLine("  if [ -f \"\$MODDIR/props.sh\" ]; then")
+        appendLine("    . \"\$MODDIR/props.sh\"")
+        appendLine("    kaorios_props_reset")
         appendLine("  fi")
         appendLine("else")
         appendLine("  echo \"Kaorios Patcher: resetting spoofed properties\"")
@@ -507,14 +554,16 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
     }.trimEnd()
 
     /**
-     * Drops the caches that still describe the patched jars, so the stock framework takes effect
-     * again on the next boot.
+     * Drops the caches that still describe the patched jars, and removes the attestation
+     * identity bundle this module deployed.
      *
-     * `/data/adb/kaorios` is deliberately left alone: this module never creates it, and deleting
-     * it would wipe a configuration bundle belonging to a different module's install.
+     * `/data/adb/kaorios` is created by `customize.sh` at flash time, so uninstall removes it
+     * along with the package cache. If a user manually placed other files there, they go too —
+     * the directory belongs to this module's install.
      */
     private fun uninstallScript(): String = buildString {
         appendLine("#!/system/bin/sh")
+        appendLine("rm -rf /data/adb/kaorios")
         appendLine("rm -rf /data/system/package_cache/*")
     }
 
@@ -566,6 +615,12 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
 
         const val TOOLBOX_APK_RESOURCE = "/module/KaoriosToolbox.apk"
         private const val PERMISSIONS_RESOURCE = "/module/com.kousei.kaorios.xml"
+
+        /** Attestation identity bundle: Keybox + PIF/device props deployed to /data/adb/kaorios/. */
+        private const val CONFIG_KEYBOX_RESOURCE = "/module/config/Keybox.xml"
+        private const val CONFIG_PIF_RESOURCE = "/module/config/Pif-props.json"
+        private const val CONFIG_DEVICE_MODEL_RESOURCE = "/module/config/device-model.json"
+        private const val CONFIG_APP_PROPS_RESOURCE = "/module/config/app-props.json"
 
         /** Marker of an APK Signing Block; its presence is what keeps the APK publishable. */
         private const val APK_SIG_BLOCK_MAGIC = "APK Sig Block 42"

@@ -276,16 +276,55 @@ class KsuModuleBuilderTest {
     }
 
     /**
-     * `/data/adb/kaorios` is a configuration bundle this module never creates — it belongs to the
-     * reference installer. Removing it on uninstall would destroy another module's state as a
-     * side effect of removing ours.
+     * The uninstall script removes the attestation identity bundle this module deployed at
+     * flash time, plus the package cache. `/data/adb/kaorios` is created by `customize.sh`,
+     * so uninstall cleans it along with our own residue.
      */
     @Test
-    fun `uninstall only clears our own residue`() {
+    fun `uninstall clears the config bundle and our own residue`() {
         val script = text(pack(bundle(*jars().toTypedArray())), "uninstall.sh")
 
-        assertFalse(script.contains("/data/adb/kaorios"), script)
+        assertContains(script, "/data/adb/kaorios")
         assertContains(script, "package_cache")
+    }
+
+    /**
+     * The attestation identity bundle ships in the zip and is deployed at flash time.
+     *
+     * Without a Keybox the runtime's software-keypair hook has nothing to sign the
+     * attestation chain with, so hardware attestation fails and Play Integrity reports
+     * the device as uncertified.
+     */
+    @Test
+    fun `the attestation identity bundle is shipped and deployed`() {
+        val entries = pack(bundle(*jars().toTypedArray()))
+
+        val configEntries = listOf(
+            "data/adb/kaorios/Keybox.xml",
+            "data/adb/kaorios/Pif-props.json",
+            "data/adb/kaorios/device-model.json",
+            "data/adb/kaorios/app-props.json",
+        )
+        for (path in configEntries) {
+            assertContains(entries.keys, path)
+        }
+
+        // Keybox must be a real XML attestation bundle, not an empty placeholder.
+        val keybox = text(entries, "data/adb/kaorios/Keybox.xml")
+        assertContains(keybox, "<AndroidAttestation>")
+        assertContains(keybox, "<NumberOfKeyboxes>")
+        assertContains(keybox, "BEGIN EC PRIVATE KEY")
+
+        // PIF props must carry a certified Pixel identity.
+        val pif = text(entries, "data/adb/kaorios/Pif-props.json")
+        assertContains(pif, "MANUFACTURER")
+        assertContains(pif, "Google")
+        assertContains(pif, "FINGERPRINT")
+
+        // customize.sh deploys the bundle to /data/adb/kaorios.
+        val customize = text(entries, "customize.sh")
+        assertContains(customize, "/data/adb/kaorios")
+        assertContains(customize, "Keybox deployed")
     }
 
     /**
@@ -318,14 +357,16 @@ class KsuModuleBuilderTest {
     /**
      * The action button is the module's only on-demand entry point, and there is no manager app
      * on the target device to press it — the app calls it with an explicit argument instead.
+     * Modes: reset (default), clear, pif (refresh identity bundle + purge caches).
      */
     @Test
-    fun `the action button dispatches reset and clear and purges the caches`() {
+    fun `the action button dispatches reset clear and pif and purges the caches`() {
         val action = text(pack(bundle(*jars().toTypedArray())), "action.sh")
 
         assertContains(action, "MODE=")
         assertContains(action, "\"clear\"")
         assertContains(action, "kaorios_props_clear")
+        assertContains(action, "\"pif\"")
         assertContains(action, "service.sh")
         assertContains(action, "SKIP_BOOT_WAIT=1")
         // GMS caches its Play Integrity verdict here; a stale entry survives a prop change.

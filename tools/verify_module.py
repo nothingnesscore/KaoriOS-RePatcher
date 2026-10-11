@@ -251,6 +251,13 @@ REQUIRED_ENTRIES = [
     "system/framework/services.jar",
     TOOLBOX_WHITELIST_ENTRY,
     TOOLBOX_APK_ENTRY,
+    # Attestation identity bundle: without a Keybox the runtime's software-keypair hook
+    # has nothing to sign the attestation chain with, so hardware attestation fails and
+    # Play Integrity reports the device as uncertified.
+    "data/adb/kaorios/Keybox.xml",
+    "data/adb/kaorios/Pif-props.json",
+    "data/adb/kaorios/device-model.json",
+    "data/adb/kaorios/app-props.json",
 ]
 
 # Lines the reference module.prop carries for KernelSU / SukiSU / APatch / Magisk.
@@ -373,10 +380,21 @@ def check_module(module_zip: str, patched_paths: list[str],
         action = zf.read("action.sh").decode("utf-8", "replace")
         if '"clear"' not in action or "kaorios_props_clear" not in action:
             bad.append("action.sh does not dispatch the clear operation")
+        if '"pif"' not in action:
+            bad.append("action.sh does not dispatch the pif refresh operation")
         if "pif.prop" not in action or "pif.json" not in action:
             bad.append("action.sh does not purge the GMS pif verdict cache")
         if "package_cache" not in action:
             bad.append("action.sh does not purge package_cache")
+
+        # The attestation identity bundle must be deployed at flash time and cleaned on
+        # uninstall. customize.sh copies it to /data/adb/kaorios; uninstall.sh removes it.
+        customize = zf.read("customize.sh").decode("utf-8", "replace")
+        if "/data/adb/kaorios" not in customize:
+            bad.append("customize.sh does not deploy the /data/adb/kaorios config bundle")
+        uninstall = zf.read("uninstall.sh").decode("utf-8", "replace")
+        if "/data/adb/kaorios" not in uninstall:
+            bad.append("uninstall.sh does not clean the /data/adb/kaorios config bundle")
 
         # init publishes ro.* before any module runs, so they are runtime overrides; the
         # installer only stages files and must stay out of it.

@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 132-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 133-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -407,9 +407,12 @@ mismatch, independent of the tree filter.
   One known hole: `MountMode.HYBRIDMOUNT`'s VFS rules may live outside
   `$MODPATH`, so `disable` might not unregister them — unverified, `hybridmount` CLI semantics
   unqueried.
-- **The `data/adb/kaorios/` config bundle is still dropped.** It carries an identity (Keybox,
-  PIF/device props) rather than a boot state, and shipping it would be installing a different
-  module's configuration on top of ours.
+- **The `data/adb/kaorios/` config bundle is shipped.** It carries the attestation identity
+  (Keybox, PIF/device props) the runtime needs for hardware attestation and Play Integrity.
+  `customize.sh` deploys it to `/data/adb/kaorios/` at flash time; `uninstall.sh` removes it.
+  Without a Keybox the software-keypair hook has nothing to sign the attestation chain with,
+  so hardware attestation fails and Play Store reports the device as uncertified.
+  `action.sh pif` redeploys the bundle after a Toolbox update.
 - **A run that produced no KaoriOS runtime is a failure, not a partial success.** The module looks
   identical either way and the difference only shows up as a boot loop, so `patchAndBuild` bails
   rather than writing a zip whose injected call sites cannot resolve.
@@ -526,7 +529,7 @@ app query ever stamps the flag. Toolbox's own status line only reads the raw fla
   `y31` → `e41(pkg, 0, 1)` → `ex.f` JSON), after which opening that app can re-trigger the stamp.
 - 10 new engine tests live in `AppsFilterBasePatchTest` (shape, idempotency, NOT_TARGET
   byte-identity, label collision, verify rejections, `.locals`/`.registers` variants); suite is
-  now 132 tests, all green.
+  now 133 tests, all green.
 
 Verified on device (previous, 7-dex build): the output `framework.jar` defined `KaoriosHook` (334
 classes); `classes2/4/5/6.dex` were SHA-256 identical to stock; the emitted guard digest for
