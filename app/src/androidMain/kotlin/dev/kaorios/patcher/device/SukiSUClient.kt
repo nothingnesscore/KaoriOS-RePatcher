@@ -84,6 +84,23 @@ class SukiSUClient {
         return runAsRoot(probe).map { it.trim() == "yes" }.getOrDefault(false)
     }
 
+    /**
+     * The VFS provider installed on the device, if any: `hybridmount` (Hybrid Mount v6+,
+     * whose `hybrid-mount` binary registers the per-boot rules), `nomount` (NoMount, the
+     * metamodule that converts other modules' mounts to VFS injection automatically), or
+     * empty when neither module is present.
+     *
+     * Runs as root because `/data/adb` is unreadable to the app uid. An unrooted device
+     * answers empty — there is no provider the module could use without root anyway.
+     */
+    fun vfsProvider(): String {
+        val probe = (
+            "if [ -x /data/adb/modules/hybrid_mount/hybrid-mount ]; then echo hybridmount; " +
+                "elif [ -d /data/adb/modules/nomount ]; then echo nomount; fi"
+            )
+        return runAsRoot(probe).getOrNull()?.trim().orEmpty()
+    }
+
     fun collectDeviceSpec(): DeviceSpec {
         val status = rootStatus(refresh = true)
         // HOS carries `ro.mi.os.version.name` (HyperOS) and/or `ro.miui.ui.version.*` (MIUI);
@@ -104,6 +121,7 @@ class SukiSUClient {
             rootVersion = status.version,
             romType = if (isHos) RomType.HOS else RomType.AOSP,
             hosVersion = hosVersion,
+            vfsProvider = vfsProvider(),
         )
     }
 

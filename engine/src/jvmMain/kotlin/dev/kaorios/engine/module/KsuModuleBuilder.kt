@@ -341,16 +341,22 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
      * through the `hybrid-mount` binary. Rules are **not persisted** by the kernel module, so
      * registration happens in `service.sh` on every boot — this script only verifies presence
      * and warns when the module is missing (the module then falls back to magic mount).
+     *
+     * NoMount (`/data/adb/modules/nomount/`) needs no per-module rules: as a metamodule it
+     * intercepts other modules' mounts at boot and converts them to VFS injection itself, so
+     * this script only acknowledges it — nothing here registers against it.
      */
     private fun hybridmountScript(bundle: Bundle): String = buildString {
-        appendLine("ui_print \"- Checking Hybrid Mount availability\"")
+        appendLine("ui_print \"- Checking VFS provider\"")
         appendLine("HM_BIN=/data/adb/modules/hybrid_mount/hybrid-mount")
-        appendLine("if [ ! -x \"\$HM_BIN\" ]; then")
-        appendLine("  ui_print \"! Hybrid Mount not installed; VFS rules cannot be registered\"")
-        appendLine("  ui_print \"! Install Hybrid Mount or use Magic Mount instead\"")
-        appendLine("  ui_print \"! Falling back to magic mount for this boot cycle\"")
-        appendLine("else")
+        appendLine("NM_DIR=/data/adb/modules/nomount")
+        appendLine("if [ -x \"\$HM_BIN\" ]; then")
         appendLine("  ui_print \"- Hybrid Mount found; VFS rules will be registered on every boot\"")
+        appendLine("elif [ -d \"\$NM_DIR\" ]; then")
+        appendLine("  ui_print \"- NoMount found; the metamodule converts mounts to VFS automatically\"")
+        appendLine("else")
+        appendLine("  ui_print \"! No VFS provider found (Hybrid Mount or NoMount)\"")
+        appendLine("  ui_print \"! Falling back to magic mount for this boot cycle\"")
         appendLine("fi")
     }.trimEnd()
 
@@ -359,12 +365,15 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
      *
      * Called from `service.sh` on every late start because the kernel module does not persist
      * rules across reboots. Each path in [overlayPaths] gets a `rule add` against the module's
-     * own overlay target. Falls back silently when Hybrid Mount is absent — magic mount still
-     * provides the overlay via KernelSU's built-in mechanism.
+     * own overlay target. NoMount needs no rules — the metamodule converts this module's
+     * standard mount automatically — so its branch only logs that. Falls back silently when
+     * neither provider is present — magic mount still provides the overlay via KernelSU's
+     * built-in mechanism.
      */
     private fun hybridmountRules(bundle: Bundle): String = buildString {
         appendLine("# Register VFS rules through Hybrid Mount (not persisted; re-register every boot).")
         appendLine("HM_BIN=/data/adb/modules/hybrid_mount/hybrid-mount")
+        appendLine("NM_DIR=/data/adb/modules/nomount")
         appendLine("if [ -x \"\$HM_BIN\" ]; then")
         appendLine("  ANDROID_MAJOR=\$(getprop ro.build.version.release)")
         appendLine("  KO_DIR=/data/adb/modules/hybrid_mount/vfs/binaries")
@@ -377,8 +386,10 @@ class KsuModuleBuilder(private val moduleId: String = MODULE_ID) {
             appendLine("  \"\$HM_BIN\" vfs rule add --path /system/$relative --target \$MODDIR/$path 2>/dev/null || true")
         }
         appendLine("  echo \"- VFS rules registered via Hybrid Mount\"")
+        appendLine("elif [ -d \"\$NM_DIR\" ]; then")
+        appendLine("  echo \"- NoMount metamodule active; VFS injection handled automatically\"")
         appendLine("else")
-        appendLine("  echo \"! Hybrid Mount unavailable; relying on magic mount\"")
+        appendLine("  echo \"! No VFS provider; relying on magic mount\"")
         appendLine("fi")
     }.trimEnd()
 

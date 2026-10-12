@@ -80,10 +80,14 @@
     <string name="patch_hideadb_summary">Report Developer options and USB debugging as off to other apps (guide optional §1).</string>
 
     <!-- VFS -->
-    <string name="vfs_title">Serve through hybridmount</string>
-    <string name="vfs_summary">Serve patched files through Hybrid Mount VFS instead of writing to /system</string>
+    <string name="vfs_title">Serve through VFS mode</string>
+    <string name="vfs_summary">Serve patched files through a VFS implementation instead of writing to /system</string>
     <string name="vfs_kernel_warning">Kernel %1$s is not a recognised GKI build; the module falls back to magic mount</string>
-    <string name="vfs_hybrid_mount_note">Requires Hybrid Mount v6+ installed. VFS rules are registered on every boot via the Hybrid Mount binary. Falls back to magic mount if Hybrid Mount is not available.</string>
+    <string name="vfs_hybrid_mount_note">Works with VFS providers such as Hybrid Mount (rules registered on every boot) and NoMount (converted automatically by the metamodule). Falls back to magic mount when no VFS provider is available.</string>
+    <string name="vfs_provider_found">VFS provider detected: %1$s. VFS mode is recommended on this device — injected files never appear in /proc/mounts.</string>
+    <string name="vfs_provider_missing">No VFS provider detected on this device. Install Hybrid Mount or NoMount to enable VFS mode.</string>
+    <string name="vfs_provider_hybridmount">Hybrid Mount</string>
+    <string name="vfs_provider_nomount">NoMount</string>
 
     <!-- Actions -->
     <string name="action_refresh">Refresh</string>

@@ -14,6 +14,13 @@ data class DeviceSpec(
     val romType: RomType,
     /** HyperOS/MIUI version property (`OS4.0`, `V816`); empty when the ROM publishes none. */
     val hosVersion: String,
+    /**
+     * VFS provider installed on the device: `hybridmount` (Hybrid Mount v6+), `nomount`
+     * (NoMount metamodule), or empty when neither module is present. Drives the VFS-mode
+     * recommendation in the patcher UI — VFS mode is worth enabling only when one of these
+     * is there to serve it; otherwise the module falls back to magic mount.
+     */
+    val vfsProvider: String = "",
 ) {
     /** Marketing major derived from the API level: SDK 33 → Android 13 … SDK 37 → Android 17. */
     val androidMajor: Int get() = sdkInt - 20

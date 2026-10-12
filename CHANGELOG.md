@@ -7,6 +7,25 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.9] - 2026-10-12
+
+- **Change — VFS mode wording and device recommendation:** the mount toggle now reads
+  "Serve through VFS mode" instead of naming Hybrid Mount alone, and the patcher probes
+  the device for a VFS provider (Hybrid Mount's binary or the NoMount metamodule) when it
+  reads the device spec. With a provider present the section recommends enabling VFS mode;
+  enabled with none, it points at installing one. The module's flash-time check and
+  boot-time rule registration recognise NoMount as well — as a metamodule it converts the
+  mount itself, so that branch logs instead of registering rules.
+- **Feature — Indian-market apps in the built-in spooflist:** 14 packages (BHIM, PhonePe,
+  Google Pay, Paytm, Amazon, Flipkart, HDFC / ICICI / Axis / YONO SBI banking, CRED,
+  MobiKwik, Freecharge, Airtel) added to `app-props.json` (65 → 79 entries). They are
+  spoofed to the same Pixel 6 identity `Pif-props.json` gives GMS, so the per-app Build
+  props and the attestation verdict agree — BHIM and friends compare both.
+- **Change — bundled Toolbox APK v2.0.6.0 → v2.0.6.1:** the offline-fallback
+  `KaoriosToolbox.apk` resource is now the signed v2.0.6.1 build (versionCode 2061), so
+  the framework reports the current version and the flash-time fallback matches what
+  release sync downloads. Signature v2 block intact.
+
 ## [v1.2.0-beta.8] - 2026-10-11
 
 - **Feature — in-app update checker:** the app now queries the GitHub releases API when it

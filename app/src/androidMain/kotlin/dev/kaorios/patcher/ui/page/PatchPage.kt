@@ -308,6 +308,29 @@ private fun VfsSection(
                 style = MiuixTheme.textStyles.footnote2,
             )
         }
+        // The recommendation only matters while the switch is off (it argues for turning it
+        // on); once enabled with no provider, the note above already promises the magic-mount
+        // fallback, so the missing-provider line points at the install instead.
+        val providerLabel = when (device?.vfsProvider) {
+            "hybridmount" -> stringResource(R.string.vfs_provider_hybridmount)
+            "nomount" -> stringResource(R.string.vfs_provider_nomount)
+            else -> null
+        }
+        if (providerLabel != null && !enabled) {
+            Text(
+                text = stringResource(R.string.vfs_provider_found, providerLabel),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                color = MiuixTheme.colorScheme.primary,
+                style = MiuixTheme.textStyles.footnote2,
+            )
+        } else if (enabled && providerLabel == null) {
+            Text(
+                text = stringResource(R.string.vfs_provider_missing),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                color = MiuixTheme.colorScheme.error,
+                style = MiuixTheme.textStyles.footnote2,
+            )
+        }
     }
 }
 

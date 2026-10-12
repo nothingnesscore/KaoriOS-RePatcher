@@ -276,10 +276,12 @@ class KsuModuleBuilderTest {
     }
 
     /**
-     * Hybrid Mount v6+ lives at `/data/adb/modules/hybrid_mount/` and exposes its VFS backend
-     * through the `hybrid-mount` binary. Rules are not persisted by the kernel module, so
-     * `customize.sh` only checks availability while `service.sh` re-registers rules on every
-     * boot. Falls back to magic mount when Hybrid Mount is absent.
+     * VFS mode is served by a provider: Hybrid Mount v6+ (binary at
+     * `/data/adb/modules/hybrid_mount/`, rules not persisted, so `service.sh` re-registers
+     * them on every boot) or NoMount (metamodule at `/data/adb/modules/nomount/`, which
+     * converts this module's mount itself — no rules to register). `customize.sh` picks
+     * whichever provider is present and warns when there is none, falling back to magic
+     * mount either way.
      */
     @Test
     fun `hybridmount checks availability at flash and registers rules every boot`() {
@@ -287,9 +289,12 @@ class KsuModuleBuilderTest {
         val customize = text(entries, "customize.sh")
         val service = text(entries, "service.sh")
 
-        // customize.sh checks for the Hybrid Mount binary and warns when absent.
+        // customize.sh detects either provider and warns when there is none.
         assertContains(customize, "/data/adb/modules/hybrid_mount/hybrid-mount")
-        assertContains(customize, "Hybrid Mount not installed")
+        assertContains(customize, "Checking VFS provider")
+        assertContains(customize, "/data/adb/modules/nomount")
+        assertContains(customize, "NoMount found; the metamodule converts mounts to VFS automatically")
+        assertContains(customize, "No VFS provider found (Hybrid Mount or NoMount)")
 
         // service.sh registers VFS rules on every boot (rules are not persisted).
         assertContains(service, "HM_BIN=/data/adb/modules/hybrid_mount/hybrid-mount")
@@ -300,6 +305,11 @@ class KsuModuleBuilderTest {
         // The rule targets are derived from the overlay paths.
         assertContains(service, "--path /system/framework/framework.jar")
         assertContains(service, "--target \$MODDIR/system/framework/framework.jar")
+
+        // NoMount needs no rules — the metamodule handles it — so its branch only logs.
+        assertContains(service, "elif [ -d \"\$NM_DIR\" ]")
+        assertContains(service, "NoMount metamodule active; VFS injection handled automatically")
+        assertContains(service, "! No VFS provider; relying on magic mount")
     }
 
     /**
