@@ -3,40 +3,19 @@
     "MANUFACTURER": "Lenovo",
     "MODEL": "TB321FU"
   },
-  "com.axis.mobile": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.axis.mobile": {},
   "com.clashoftitansandroid.india": {
     "BRAND": "realme",
     "DEVICE": "Realme 15 Pro 5G",
     "MANUFACTURER": "realme",
     "MODEL": "RMX5101"
   },
-  "com.csam.icici.bank.imobile": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.csam.icici.bank.imobile": {},
   "com.dts.freefiremax": {
     "MANUFACTURER": "INFINIX",
     "MODEL": "Infinix X6891"
   },
-  "com.dreamplug.androidapp": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.dreamplug.androidapp": {},
   "com.dts.freefireth": {
     "MANUFACTURER": "INFINIX",
     "MODEL": "Infinix X6891"
@@ -67,28 +46,14 @@
     "FINGERPRINT": "samsung/SM-S928B/SM-S928B:14/UP1A.231005.007/20240225:user/release-keys",
     "PRODUCT": "SM-S928B"
   },
-  "com.flipkart.android": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.flipkart.android": {},
   "com.gameloft.android.ANMP.GloftA9HM": {
     "BRAND": "asus",
     "DEVICE": "AI2201",
     "MANUFACTURER": "asus",
     "MODEL": "ASUS_AI2201"
   },
-  "com.freecharge.android": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.freecharge.android": {},
   "com.garena.game.codm": {
     "MANUFACTURER": "Lenovo",
     "MODEL": "TB321FU"
@@ -135,14 +100,7 @@
     "MANUFACTURER": "realme",
     "MODEL": "RMX5101"
   },
-  "com.google.android.apps.nbu.paisa.user": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.google.android.apps.nbu.paisa.user": {},
   "com.levelinfinite.aov": {
     "BRAND": "realme",
     "DEVICE": "Realme 15 Pro 5G",
@@ -164,14 +122,7 @@
     "MANUFACTURER": "asus",
     "MODEL": "ASUS_AI2201"
   },
-  "com.mobikwik_new": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.mobikwik_new": {},
   "com.mobile.legends": {
     "MANUFACTURER": "Lenovo",
     "MODEL": "TB321FU"
@@ -180,14 +131,7 @@
     "MANUFACTURER": "Lenovo",
     "MODEL": "TB321FU"
   },
-  "com.myairtelapp": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.myairtelapp": {},
   "com.netease.lztgglobal": {
     "MANUFACTURER": "OnePlus",
     "MODEL": "IN2020"
@@ -239,14 +183,7 @@
     "MANUFACTURER": "asus",
     "MODEL": "ASUS_AI2201"
   },
-  "com.phonepe.app": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.phonepe.app": {},
   "com.proxima.dfm": {
     "BRAND": "asus",
     "DEVICE": "AI2203_C",
@@ -298,22 +235,8 @@
     "MANUFACTURER": "OnePlus",
     "MODEL": "PLK110"
   },
-  "com.sbi.lotusintouch": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
-  "com.snapwork.hdfc": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
+  "com.sbi.lotusintouch": {},
+  "com.snapwork.hdfc": {},
   "com.supercell.brawlstars": {
     "MANUFACTURER": "ZTE",
     "BRAND": "nubia",
@@ -455,28 +378,7 @@
     "FINGERPRINT": "nubia/NX789J-UN/NX789J:15/AQ3A.240812.002/20241212.194919:user/release-keys",
     "PRODUCT": "NX789J"
   },
-  "in.amazon.mShop.android.shopping": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
-  "in.org.npci.upiapp": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  },
-  "net.one97.paytm": {
-    "BRAND": "google",
-    "DEVICE": "oriole",
-    "MANUFACTURER": "Google",
-    "MODEL": "Pixel 6",
-    "FINGERPRINT": "google/oriole_beta/oriole:17/CP31.260623.012/16064790:user/release-keys",
-    "PRODUCT": "oriole_beta"
-  }
+  "in.amazon.mShop.android.shopping": {},
+  "in.org.npci.upiapp": {},
+  "net.one97.paytm": {}
 }

@@ -128,9 +128,13 @@ then picks which existing dex to fold it into.
 The dex is built from a private source repo and published as the `classes.dex` asset of the
 `Kaorios-Toolbox` GitHub release; it cannot be derived from this repository. The app fetches it
 itself: every Patch tap runs `ReleaseSync` after the pull/permission validations and before
-disassembly, downloading the release's `classes.dex` → `workspace/assets/kaorios.dex` and its
-signed manager APK → `workspace/assets/KaoriosToolbox.apk`, and logs one line —
-`release sync <tag>: kaorios.dex=<n>B KaoriosToolbox.apk=<n>B`. The download fails closed (dex
+disassembly, listing the fork's releases and picking the **highest tag version that publishes a
+`classes.dex`** (`releases/latest` orders by created date and lies — v2.0.6.0's rebuild won
+"latest" over the newer v2.0.6.1), then downloading that release's `classes.dex` →
+`workspace/assets/kaorios.dex`. The manager APK is taken **only from the same release**; when
+that release publishes no APK (v2.0.6.1 does not) a workspace APK tagged to a different release
+is deleted so the bundled signed copy wins instead of shadowing it, and the sync logs one line —
+`release sync <tag>: kaorios.dex=<n>B KaoriosToolbox.apk=<n>B` (or `toolbox=bundled`). The download fails closed (dex
 `dex\n` magic, APK `PK\x03\x04` + `APK Sig Block 42`, `.part` → rename), and a failed sync
 leaves the existing offline cache in place, so the run still works from whatever the assets
 already hold; a first run with neither network nor cache falls back to a manual drop, so:
@@ -286,7 +290,8 @@ adb logcat -s KaoriosPatcher
 `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1.md` (`framework.jar` §2-§6, `services.jar` §1-§3 and
 `Optional patches` §1-§2), `Disable_Secure_Flag.md`, and `CorePatch.md` §1-§3 — keyed by
 `GuideCheck.REVISION`, which names the upstream commit all three were read at (adding a table
-does not move it; re-reading the guides at a new commit does; it is `8c752fd` as of v2.0.6.1). It
+does not move it; re-reading the guides at a new commit does; it is `c645e64` — the fork head
+as of v2.0.6.1+, re-read for beta.10 with no new patch targets). It
 reports each expected file `ok` / `MISSING` / `REJECTED`, plus `absent` for the three sites the
 guides themselves let a ROM skip, and names the entries deliberately out of scope —
 `SettingsProvider.smali` (retired upstream at `8c752fd`; the guide says keep the stock
@@ -412,7 +417,10 @@ mismatch, independent of the tree filter.
   `customize.sh` deploys it to `/data/adb/kaorios/` at flash time; `uninstall.sh` removes it.
   Without a Keybox the software-keypair hook has nothing to sign the attestation chain with,
   so hardware attestation fails and Play Store reports the device as uncertified.
-  `action.sh pif` redeploys the bundle after a Toolbox update.
+  `action.sh pif` redeploys the bundle after a Toolbox update. The per-app `app-props.json`
+  entries carry **package keys only** (`{}`) — identity comes from the active PIF
+  (`Pif-props.json` / the Toolbox's working PIF), which is why hardcoding a device identity
+  into app-props is wrong (the runtime applies the working PIF value to the listed packages).
 - **A run that produced no KaoriOS runtime is a failure, not a partial success.** The module looks
   identical either way and the difference only shows up as a boot loop, so `patchAndBuild` bails
   rather than writing a zip whose injected call sites cannot resolve.

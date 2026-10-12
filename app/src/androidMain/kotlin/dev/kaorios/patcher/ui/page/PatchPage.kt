@@ -86,6 +86,7 @@ fun PatchPage(
                 currentIsBeta = AppVersion.isBeta,
                 onInstall = onInstallUpdate,
                 onDismiss = onDismissUpdate,
+                error = state.updateError,
             )
         }
         DeviceSection(state.device, state.root)

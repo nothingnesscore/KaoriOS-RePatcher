@@ -68,6 +68,8 @@ data class PatchUiState(
     val update: UpdateChecker.Result? = null,
     /** Whether an update check is currently in flight. */
     val updateChecking: Boolean = false,
+    /** The last install failure, shown in the banner; `null` when the last install succeeded. */
+    val updateError: String? = null,
     /** Epoch millis of the last successful update check, for throttling. */
     val lastUpdateCheckAt: Long = 0L,
 ) {
@@ -186,46 +188,46 @@ class PatchViewModel(
 
     /** Dismisses the update banner without installing. */
     fun dismissUpdate() {
-        _state.update { it.copy(update = null) }
+        _state.update { it.copy(update = null, updateError = null) }
     }
 
     /**
      * Downloads the update APK and installs it through the root shell.
      *
-     * The APK is fetched from the GitHub release asset URL, written to the app cache, then
-     * installed with `pm install -r` via su. The update banner is cleared on success so the
-     * user is not prompted again for the same version.
+     * The APK is fetched from the GitHub release asset URL (following redirects explicitly,
+     * the same way [ReleaseSync] does — `pm install` on this device cannot be handed an
+     * app-private path reliably), copied into `/data/local/tmp` where the package manager
+     * can always read it, and installed with `pm install -r`. Failures are surfaced in
+     * [PatchUiState.updateError] rather than logged only, so the banner can tell the user
+     * what went wrong instead of the button silently doing nothing. The banner is cleared
+     * on success so the user is not prompted again for the same version.
      */
     fun installUpdate() {
         val update = _state.value.update ?: return
         val apkUrl = update.apkUrl ?: run {
             PatchLog.warn("update: no APK asset on ${update.tag}")
+            _state.update { it.copy(updateError = "no APK asset on ${update.tag}") }
             return
         }
 
         viewModelScope.launch {
-            _state.update { it.copy(updateChecking = true) }
+            _state.update { it.copy(updateChecking = true, updateError = null) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val tmp = File.createTempFile("update", ".apk", workspace.logDir)
                     try {
-                        val conn = java.net.URL(apkUrl).openConnection() as java.net.HttpURLConnection
-                        conn.connectTimeout = 15_000
-                        conn.readTimeout = 60_000
-                        conn.instanceFollowRedirects = true
-                        conn.inputStream.use { input ->
-                            tmp.outputStream().use { output -> input.copyTo(output) }
-                        }
-                        conn.disconnect()
-
-                        // Install through the root shell; the app already requires su.
-                        val exit = client.runAsRoot("pm install -r ${tmp.absolutePath}")
-                            .getOrElse { error(it.message ?: "su failed") }
+                        downloadRedirect(apkUrl, tmp)
+                        val staging = "/data/local/tmp/kp-update.apk"
+                        val exit = client.runAsRoot(
+                            "cp '${tmp.absolutePath}' $staging && chmod 644 $staging && " +
+                                "pm install -r $staging"
+                        ).getOrElse { error(it.message ?: "su failed") }
                         if (!exit.contains("Success")) error("pm install: $exit")
                         PatchLog.info("update: installed ${update.tag}")
                         true
                     } finally {
                         tmp.delete()
+                        runCatching { client.runAsRoot("rm -f /data/local/tmp/kp-update.apk") }
                     }
                 }
             }
@@ -233,9 +235,37 @@ class PatchViewModel(
             result.onSuccess {
                 _state.update { it.copy(update = null) }
             }.onFailure { e ->
-                PatchLog.warn("update: install failed — ${e.message}")
+                val reason = e.message ?: e::class.simpleName.orEmpty()
+                PatchLog.warn("update: install failed — $reason")
+                _state.update { it.copy(updateError = reason) }
             }
         }
+    }
+
+    /** GET with explicit redirect handling; release assets 302 to the storage CDN. */
+    private fun downloadRedirect(url: String, target: File) {
+        var current = url
+        repeat(5) {
+            val conn = java.net.URL(current).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 60_000
+            conn.setRequestProperty("User-Agent", "KaoriosPatcher")
+            val status = conn.responseCode
+            if (status in 300..399) {
+                val location = conn.getHeaderField("Location")
+                    ?: error("redirect without Location (HTTP $status)")
+                conn.disconnect()
+                current = location
+                return@repeat
+            }
+            if (status != 200) error("HTTP $status for $current")
+            conn.inputStream.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            conn.disconnect()
+            return
+        }
+        error("too many redirects for $url")
     }
 
     /**
@@ -539,7 +569,7 @@ class PatchViewModel(
             val zip = try {
                 withContext(Dispatchers.IO) {
                     val bundle = KsuModuleBuilder.Bundle(
-                        versionName = "1.0.0",
+                        versionName = AppVersion.versionName,
                         mountMode = if (_state.value.enableVfs) MountMode.HYBRIDMOUNT else MountMode.MAGIC_MOUNT,
                         artifacts = roundTrip.artifacts.map {
                             KsuModuleBuilder.Artifact(it, modulePaths.getValue(it.name))

@@ -63,33 +63,77 @@ class ReleaseSync(private val assetsDir: File) {
         }
     }
 
-    /** Resolves the latest release and downloads whatever the workspace does not already hold. */
+    /** Resolves the newest release per asset type and downloads what the workspace lacks. */
     private fun fetchRelease(): String {
-        val release = getJson(RELEASE_API, ACCEPT_API)
-        val tag = release.getString("tag_name")
-        val urls = mutableMapOf<String, String>()
-        val sizes = mutableMapOf<String, Long>()
-        val digests = mutableMapOf<String, String>()
-        val assets = release.getJSONArray("assets")
-        for (i in 0 until assets.length()) {
-            val asset = assets.getJSONObject(i)
-            val name = asset.getString("name")
-            urls[name] = asset.getString("browser_download_url")
-            sizes[name] = asset.getLong("size")
-            val digest = asset.optString("digest")
-            if (digest.startsWith("sha256:")) digests[name] = digest.removePrefix("sha256:")
+        val array = getJsonArray("$RELEASES_API?per_page=30", ACCEPT_API)
+        val releases = (0 until array.length()).map { array.getJSONObject(it) }
+            .filter { !it.optBoolean("draft", false) }
+        // GitHub's "latest" endpoint orders by created date, which misleads when a newer
+        // version's release was created earlier (v2.0.6.1 shipped after a v2.0.6.0 rebuild
+        // and lost "latest" to it), so the dex release is chosen by tag version instead.
+        val dexRelease = releases
+            .filter { rel -> asset(rel, DEX_ASSET) != null }
+            .maxByOrNull { versionKey(it.getString("tag_name")) }
+            ?: error("no release publishes a $DEX_ASSET asset")
+        val tag = dexRelease.getString("tag_name")
+        val dexAsset = asset(dexRelease, DEX_ASSET)
+            ?: error("release $tag publishes no $DEX_ASSET asset")
+        // The APK only ships when it comes from the very release the dex came from: a
+        // mismatched pair means upstream replaced the runtime without republishing the
+        // manager, and the app-shipped bundled APK is the intended fallback — a stale
+        // workspace copy would shadow it and silently downgrade the priv-app overlay.
+        val apkAsset = asset(dexRelease, null)
+        fetch(
+            dexAsset.getString("browser_download_url"),
+            assetsDir.resolve(DEX_NAME),
+            dexAsset.getLong("size"),
+            digest(dexAsset),
+            Kind.DEX,
+        )
+        val cachedApk = assetsDir.resolve(APK_NAME)
+        val apkTagFile = assetsDir.resolve(APK_TAG_FILE)
+        if (apkAsset == null) {
+            // Drop a workspace APK synced from a different release so it cannot win over
+            // the bundled one; the tag file names the release the cached APK came from.
+            if (apkTagFile.isFile && apkTagFile.readText().trim() != tag) {
+                cachedApk.delete()
+                apkTagFile.delete()
+            }
+        } else {
+            fetch(
+                apkAsset.getString("browser_download_url"),
+                cachedApk,
+                apkAsset.getLong("size"),
+                digest(apkAsset),
+                Kind.APK,
+            )
+            apkTagFile.writeText(tag)
         }
-        val dexUrl = urls[DEX_ASSET] ?: error("release $tag publishes no $DEX_ASSET asset")
-        val apk = urls.entries.firstOrNull {
-            it.key.endsWith(".apk", ignoreCase = true) &&
-                it.key.contains("toolbox", ignoreCase = true)
-        } ?: urls.entries.firstOrNull { it.key.endsWith(".apk", ignoreCase = true) }
-            ?: error("release $tag publishes no apk asset")
-
-        fetch(dexUrl, assetsDir.resolve(DEX_NAME), sizes[DEX_ASSET], digests[DEX_ASSET], Kind.DEX)
-        fetch(apk.value, assetsDir.resolve(APK_NAME), sizes[apk.key], digests[apk.key], Kind.APK)
         assetsDir.resolve(TAG_FILE).writeText(tag)
         return tag
+    }
+
+    private fun asset(release: JSONObject, requiredName: String?): JSONObject? {
+        val assets = release.optJSONArray("assets") ?: return null
+        val entries = (0 until assets.length()).map { assets.getJSONObject(it) }
+        if (requiredName != null) return entries.firstOrNull { it.getString("name") == requiredName }
+        return entries.firstOrNull {
+            it.getString("name").endsWith(".apk", ignoreCase = true) &&
+                it.getString("name").contains("toolbox", ignoreCase = true)
+        } ?: entries.firstOrNull { it.getString("name").endsWith(".apk", ignoreCase = true) }
+    }
+
+    private fun digest(asset: JSONObject): String? =
+        asset.optString("digest")
+            .takeIf { it.startsWith("sha256:") }
+            ?.removePrefix("sha256:")
+            ?.takeIf { it.length == 64 }
+
+    /** Numeric sort key for release tags (`v2.0.6.1` → 2_006_001); junk segments sort as 0. */
+    private fun versionKey(tag: String): Long {
+        val parts = tag.removePrefix("v").substringBefore("-").split(".")
+        fun seg(i: Int) = parts.getOrElse(i) { "0" }.toLongOrNull() ?: 0L
+        return seg(0) * 1_000_000L + seg(1) * 1_000L + seg(2)
     }
 
     /**
@@ -141,11 +185,11 @@ class ReleaseSync(private val assetsDir: File) {
             String(file.readBytes(), Charsets.ISO_8859_1).contains(APK_SIG_BLOCK_MAGIC)
     }
 
-    private fun getJson(url: String, accept: String): JSONObject {
+    private fun getJsonArray(url: String, accept: String): org.json.JSONArray {
         val conn = open(url, accept)
         val body = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
         conn.disconnect()
-        return JSONObject(body)
+        return org.json.JSONArray(body)
     }
 
     /**
@@ -206,8 +250,8 @@ class ReleaseSync(private val assetsDir: File) {
     }
 
     companion object {
-        private const val RELEASE_API =
-            "https://api.github.com/repos/hzzmonetvn/Kaorios-Toolbox/releases/latest"
+        private const val RELEASES_API =
+            "https://api.github.com/repos/hzzmonetvn/Kaorios-Toolbox/releases"
         private const val ACCEPT_API = "application/vnd.github+json"
         private const val ACCEPT_BINARY = "*/*"
         private const val USER_AGENT = "KaoriosPatcher"
@@ -220,6 +264,7 @@ class ReleaseSync(private val assetsDir: File) {
         const val DEX_NAME = "kaorios.dex"
         const val APK_NAME = "KaoriosToolbox.apk"
         private const val TAG_FILE = "release.tag"
+        private const val APK_TAG_FILE = "KaoriosToolbox.apk.tag"
 
         private val DEX_MAGIC = byteArrayOf(0x64, 0x65, 0x78, 0x0a) // "dex\n"
         private val ZIP_MAGIC = byteArrayOf(0x50, 0x4b, 0x03, 0x04)

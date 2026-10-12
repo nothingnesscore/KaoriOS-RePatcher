@@ -34,6 +34,7 @@ fun UpdateBanner(
     onInstall: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    error: String? = null,
 ) {
     SectionCard(
         title = stringResource(R.string.update_title),
@@ -124,6 +125,16 @@ fun UpdateBanner(
                     text = stringResource(R.string.update_action_later),
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
+                )
+            }
+
+            // The last install failure, so the button is never silently dead.
+            if (error != null) {
+                Text(
+                    text = stringResource(R.string.update_install_failed, error),
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = MiuixTheme.colorScheme.error,
+                    style = MiuixTheme.textStyles.footnote2,
                 )
             }
         }

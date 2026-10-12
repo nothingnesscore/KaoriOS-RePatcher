@@ -7,6 +7,31 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.10] - 2026-10-12
+
+- **Fix — release sync picks the newest release by version, not by date:** `releases/latest`
+  on the fork returns v2.0.6.0 (its rebuild was *created* after v2.0.6.1's release), so the
+  module kept shipping the stale 573,604 B dex and the old APK — which is why hide-apps and
+  the brand spoof never took effect (both run in the runtime dex). The sync now lists all
+  releases and picks the highest tag that publishes a `classes.dex` (currently v2.0.6.1,
+  573,444 B).
+- **Fix — a stale workspace Toolbox APK can no longer shadow the bundled one:** the manager
+  APK is taken only from the same release as the dex; when that release has no APK asset
+  (v2.0.6.1 does not) an APK cached under a different tag is deleted, so the bundled signed
+  v2.0.6.1 (versionCode 2061) is what the module ships.
+- **Fix — the update banner's Install button actually installs and reports failures:**
+  downloads follow redirects explicitly with a User-Agent, the APK is staged through
+  `/data/local/tmp` before `pm install -r` (an app-private path is not reliably readable),
+  and install errors are shown in the banner instead of being logged only.
+- **Change — Indian app-props entries carry package keys only:** the 14 packages added in
+  beta.9 no longer hardcode a Pixel 6 identity; the runtime applies the working PIF value
+  to listed packages, so overriding it with stale values was wrong.
+- **Fix — the module now reports the app version:** `module.prop` is stamped with the real
+  version name instead of the hardcoded `1.0.0`.
+- **Chore — GuideCheck re-read at fork head `c645e64`:** no new patch targets; the upstream
+  register-encoding hardening (boundary-safe alias rewriting, `UNSUPPORTED_LAYOUT`) was
+  already at parity.
+
 ## [v1.2.0-beta.9] - 2026-10-12
 
 - **Change — VFS mode wording and device recommendation:** the mount toggle now reads
