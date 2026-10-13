@@ -7,6 +7,24 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.11] - 2026-10-13
+
+- **Fix — Android 16 / AOSP ROMs no longer fail closed with three `UNSUPPORTED_LAYOUT`
+  errors:** the keystore-generator hook reuses the highest local instead of growing the
+  frame (the reference's growth pushed `p0` past v15 and tripped the register-encoding
+  gate); the certificate-chain hook accepts AOSP 16's `:cond_…` label and `move-object`
+  hop between the final `aput-object` and its `return-object`; and the installer-source
+  filter now finds the installing argument by dataflow provenance instead of a fixed
+  index, so AOSP 16's reordered `InstallSourceInfo` constructor is recognised. An
+  unsupported installer layout degrades to visibility-only — the App Hide hook still
+  ships — instead of rejecting the whole file.
+- **Fix — a stale cached Toolbox APK can no longer survive a release sync:** when the
+  selected release publishes no APK asset, the cached copy is deleted unconditionally
+  (pre-beta.10 workspaces have no tag file, so provenance was unknown).
+- **Change — ROM detection shows the build's display name:** the device row now reads
+  `ROM: AOSP Lunaris-3.12` (or `HOS OS4.0 (…)`) from `ro.build.display.id`, so an AOSP
+  ROM that retains MIUI props is no longer mislabelled as HyperOS.
+
 ## [v1.2.0-beta.10] - 2026-10-12
 
 - **Fix — release sync picks the newest release by version, not by date:** `releases/latest`

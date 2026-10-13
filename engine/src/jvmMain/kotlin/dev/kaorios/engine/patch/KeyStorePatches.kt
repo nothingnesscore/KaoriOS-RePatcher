@@ -29,19 +29,38 @@ object KeyStoreGeneratorPatch {
         val match = DIRECTIVE.find(methodBody)
             ?: throw UnsupportedLayoutException(".registers or .locals directive not found in generateKeyPair")
         val directive = match.groupValues[1]
-        val oldReg = match.groupValues[2].toInt()
-        val newReg = oldReg + 1
+        val oldCount = match.groupValues[2].toInt()
 
+        // No-growth: reuse the highest existing local as the hook's scratch. At method entry
+        // every local is dead, and the template itself parks the result in v14 of a
+        // `.registers 16` frame (v15 = p0). Growing the frame shifts every parameter slot
+        // and can push p0 past v15, which the register-encoding gate then refuses.
         val vTarget: String
         val p0Num: Int
+        var newCount = oldCount
         if (directive == "registers") {
-            methodBody = Smali.canonicalizeParamAliases(methodBody, oldReg, 1)
-            vTarget = "v${newReg - 2}"
-            p0Num = newReg - 1
+            // Locals are v0 … v(oldCount-2); p0 sits at physical v(oldCount-1).
+            val existingLocals = oldCount - 1
+            if (existingLocals < 1) {
+                // Zero locals: grow by one so there is a scratch slot. Params still fit
+                // (p0 moves to v1, well under v15), so the encoding gate stays green.
+                newCount = oldCount + 1
+                vTarget = "v$oldCount"
+                p0Num = newCount - 1
+            } else {
+                vTarget = "v${oldCount - 2}"
+                p0Num = oldCount - 1
+            }
         } else {
-            methodBody = Smali.canonicalizeParamAliases(methodBody, oldReg + 1, 1)
-            vTarget = "v$oldReg"
-            p0Num = oldReg + 1
+            // Locals are v0 … v(oldCount-1); p0 sits at physical v(oldCount).
+            if (oldCount < 1) {
+                newCount = oldCount + 1
+                vTarget = "v$oldCount"
+                p0Num = newCount
+            } else {
+                vTarget = "v${oldCount - 1}"
+                p0Num = oldCount
+            }
         }
 
         val label = Smali.uniqueLabel(":cond_kaorios_gen_stock", methodBody)
@@ -61,9 +80,11 @@ object KeyStoreGeneratorPatch {
     $label
 """
         val finalMatch = DIRECTIVE.find(methodBody)
-            ?: throw UnsupportedLayoutException("register directive vanished during canonicalization")
+            ?: throw UnsupportedLayoutException("register directive vanished")
+        val directiveLine =
+            if (newCount == oldCount) ".$directive $oldCount" else ".$directive $newCount"
         val newBody = methodBody.substring(0, finalMatch.range.first) +
-            ".$directive $newReg" + inject + methodBody.substring(finalMatch.range.last + 1)
+            directiveLine + inject + methodBody.substring(finalMatch.range.last + 1)
 
         return PatchOutcome(
             PatchStatus.PATCHED,
@@ -110,11 +131,35 @@ object KeyStoreSpiPatch {
 
     private const val LEAF_LABEL = ":kaorios_certificate_stock"
     private val DIRECTIVE = Regex("\\.(registers|locals)\\s+(\\d+)")
+
+    /**
+     * Debug directives, blank lines and label lines the reference tolerates between
+     * instructions. Labels matter on AOSP 16: baksmali can emit `:cond_…` between the
+     * final `aput-object` and its `return-object`.
+     */
+    private val GAP =
+        "(?:[ \\t]*\\.(?:line|local|end local|restart local)[^\\n]*\\n|[ \\t]*\\n|[ \\t]*:[^\\n]*\\n)*"
+
+    /** `aput-object arr…, arr, …` directly followed by `return-object arr`. */
     private val APUT_RETURN = Regex(
         "(?<aput>aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+)" +
-            "(?<gap>(?:[ \\t]*\\.(?:line|local|end local|restart local)[^\\n]*\\n|[ \\t]*\\n)*)" +
+            "(?<gap>$GAP)" +
             "[ \\t]*(?<ret>return-object\\s+\\k<array>)"
     )
+
+    /**
+     * The same shape with a `move-object moved, arr` between the aput and the return.
+     * The hook still targets the array before the copy; the return register is the moved
+     * one, so the injection lands on the value the method actually returns.
+     */
+    private val APUT_MOVE_RETURN = Regex(
+        "(?<aput>aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+)" +
+            "(?<gap1>$GAP)" +
+            "[ \\t]*move-object\\s+(?<moved>[vp]\\d+),\\s*\\k<array>" +
+            "(?<gap2>$GAP)" +
+            "[ \\t]*(?<ret>return-object\\s+\\k<moved>)"
+    )
+
     private val RETURN_OBJECT = Regex("\\breturn-object\\s+([vp]\\d+)")
 
     /** The hook signature escaped for embedding in a pattern. */
@@ -123,11 +168,12 @@ object KeyStoreSpiPatch {
             "\\(\\[Ljava/security/cert/Certificate;\\)\\[Ljava/security/cert/Certificate;"
 
     /**
-     * Debug directives or blank lines the reference tolerates between instructions,
-     * verbatim from upstream (`debug_gap` / the `pairs` gaps in `verify_target_content`).
+     * Debug directives, blank lines and label lines the reference tolerates between
+     * instructions, verbatim from upstream (`debug_gap` / the `pairs` gaps in
+     * `verify_target_content`), plus labels so AOSP 16's `:cond_…` hops are accepted.
      */
     private const val DEBUG_GAP =
-        "(?:\\s*\\.(?:line|local|end local|restart local)[^\\n]*\\n|\\s*\\n)*\\s*"
+        "(?:\\s*\\.(?:line|local|end local|restart local)[^\\n]*\\n|\\s*\\n|\\s*:[^\\n]*\\n)*\\s*"
 
     /**
      * The historical hook whose result register does not match the array it was called with.
@@ -171,15 +217,21 @@ object KeyStoreSpiPatch {
         // that return; a loop's earlier aput-object is not a safe hook point.
         // AOSP Android 15 carries a fourth bare null return (the catch path), so
         // beyond the (3,1) shape every non-matched return must be provably null.
-        val matches = APUT_RETURN.findAll(methodBody).toList()
+        // AOSP 16 can route the final array through a `move-object` before the
+        // return, so both the direct and the moved shapes are accepted.
+        val direct = APUT_RETURN.findAll(methodBody).toList()
+        val moved = APUT_MOVE_RETURN.findAll(methodBody).toList()
+        val matches = (direct + moved).sortedBy { it.range.first }
         if (matches.isEmpty()) {
             throw UnsupportedLayoutException("engineGetCertificateChain: leaf-array return not found")
         }
         val returns = RETURN_OBJECT.findAll(methodBody).map { it.groupValues[1] }.toList()
         if (returns.size == 3 && matches.size == 1) {
             val nullReg = returns[0]
-            val array = matches[0].groups["array"]!!.value
-            if (returns != listOf(nullReg, array, nullReg) ||
+            // The middle return is what the method actually returns: the array itself on
+            // the direct shape, or the `move-object` destination on the A16 moved shape.
+            val retReg = matches[0].groups["ret"]!!.value.substringAfterLast(' ').trim()
+            if (returns != listOf(nullReg, retReg, nullReg) ||
                 !Regex("const/4\\s+${Regex.escape(nullReg)},\\s*0x0\\b")
                     .containsMatchIn(methodBody.substring(0, matches[0].range.first))
             ) {
@@ -210,14 +262,21 @@ object KeyStoreSpiPatch {
 
         var newBody = methodBody
         for (match in matches.asReversed()) {
-            val array = match.groups["array"]!!.value
-            val physical = if (array.startsWith("p")) paramBase + array.substring(1).toInt() else array.substring(1).toInt()
-            val invoke = if (physical > 15) {
-                "invoke-static/range {$array .. $array}, $HOOK_SIGNATURE"
+            // The hook targets the register the method returns: the array itself on the
+            // direct shape, or the `move-object` destination on the A16 moved shape.
+            val retText = match.groups["ret"]!!.value
+            val retReg = retText.substringAfterLast(' ').trim()
+            val physical = if (retReg.startsWith("p")) {
+                paramBase + retReg.substring(1).toInt()
             } else {
-                "invoke-static {$array}, $HOOK_SIGNATURE"
+                retReg.substring(1).toInt()
             }
-            val inject = "$invoke\n    move-result-object $array\n    "
+            val invoke = if (physical > 15) {
+                "invoke-static/range {$retReg .. $retReg}, $HOOK_SIGNATURE"
+            } else {
+                "invoke-static {$retReg}, $HOOK_SIGNATURE"
+            }
+            val inject = "$invoke\n    move-result-object $retReg\n    "
             val retStart = match.groups["ret"]!!.range.first
             newBody = newBody.substring(0, retStart) + inject + newBody.substring(retStart)
         }
@@ -289,8 +348,10 @@ object KeyStoreSpiPatch {
                 failVerification("AndroidKeyStoreSpi: dataflow mismatch; hook must directly dominate its return")
             }
             val nullReg = returns[0]
-            val array = pairs[0].groups["array"]!!.value
-            if (returns != listOf(nullReg, array, nullReg) ||
+            // The hooked return register, not the aput array: on the A16 moved shape the
+            // method returns the `move-object` destination, which differs from the array.
+            val retReg = pairs[0].groups["target"]!!.value
+            if (returns != listOf(nullReg, retReg, nullReg) ||
                 !Regex("const/4\\s+${Regex.escape(nullReg)},\\s*0x0\\b")
                     .containsMatchIn(body.substring(0, pairs[0].range.first))
             ) {
@@ -345,14 +406,20 @@ object KeyStoreSpiPatch {
             "\\k<label>"
     )
 
+    /**
+     * The hook paired with its aput and return, tolerating the A16 `move-object` hop.
+     * The hook may target the array itself or the moved copy — either way the register
+     * it writes back is the one the method returns.
+     */
     private val PAIRED_HOOK = Regex(
         "aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+" +
             DEBUG_GAP +
-            "invoke-static(?:/range)?\\s*\\{\\k<array>(?:\\s*\\.\\.\\s*\\k<array>)?\\},\\s*" +
+            "(?:move-object\\s+(?<moved>[vp]\\d+),\\s*\\k<array>" + DEBUG_GAP + ")?" +
+            "invoke-static(?:/range)?\\s*\\{(?<target>[vp]\\d+)(?:\\s*\\.\\.\\s*\\k<target>)?\\},\\s*" +
             HOOK_PATTERN +
             DEBUG_GAP +
-            "move-result-object\\s+\\k<array>" +
+            "move-result-object\\s+\\k<target>" +
             DEBUG_GAP +
-            "return-object\\s+\\k<array>"
+            "return-object\\s+\\k<target>"
     )
 }

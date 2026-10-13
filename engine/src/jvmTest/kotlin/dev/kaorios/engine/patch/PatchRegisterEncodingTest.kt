@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * Register-encoding safety: growing a directive must never leave stock instructions
@@ -42,7 +43,11 @@ class PatchRegisterEncodingTest {
     }
 
     @Test
-    fun narrowParameterOperandAfterGrowthIsRefusedWithOriginalInput() {
+    fun narrowParameterOperandSurvivesBecauseTheGeneratorDoesNotGrow() {
+        // The A16 tester's failure: the reference grows `.registers 16` to 17, which
+        // pushes p0 to v16; a stock narrow `invoke-virtual {p0}` cannot encode v16, so
+        // the gate refuses and no module is produced. The engine's no-growth path reuses
+        // the highest local instead, so these bodies now patch and stay encodable.
         val bodies = listOf(
             "    invoke-virtual {p0}, Ljava/lang/Object;->toString()Ljava/lang/String;\n",
             "    invoke-virtual {v15}, Ljava/lang/Object;->toString()Ljava/lang/String;\n",
@@ -51,9 +56,9 @@ class PatchRegisterEncodingTest {
         for (body in bodies) {
             val fixture = generator(body)
             val outcome = applyKeystore(fixture)
-            assertEquals(PatchStatus.UNSUPPORTED_LAYOUT, outcome.status, "body: $body")
-            assertEquals(fixture, outcome.content, "input must stay byte-identical: $body")
-            assertContains(outcome.error ?: "", "encoding limit v15")
+            assertEquals(PatchStatus.PATCHED, outcome.status, "body: $body ${outcome.error}")
+            assertTrue(outcome.content.contains(".registers 16"), "frame must not grow: $body")
+            Smali.verifyRegisterEncoding(outcome.content, "AndroidKeyStoreKeyPairGeneratorSpi.smali")
         }
     }
 

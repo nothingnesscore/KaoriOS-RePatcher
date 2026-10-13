@@ -15,6 +15,12 @@ data class DeviceSpec(
     /** HyperOS/MIUI version property (`OS4.0`, `V816`); empty when the ROM publishes none. */
     val hosVersion: String,
     /**
+     * Human-readable ROM name from `ro.build.display.id` (e.g. `Lunaris-3.12`, `UKQ1.231003.002`).
+     * Custom ROMs that retain Xiaomi properties (e.g. Lunaris on a Xiaomi 13) are still AOSP
+     * under the hood; this name lets the Device row show the truth instead of a stale `V816`.
+     */
+    val romName: String = "",
+    /**
      * VFS provider installed on the device: `hybridmount` (Hybrid Mount v6+), `nomount`
      * (NoMount metamodule), or empty when neither module is present. Drives the VFS-mode
      * recommendation in the patcher UI — VFS mode is worth enabling only when one of these
@@ -32,14 +38,21 @@ data class DeviceSpec(
     val isSupported: Boolean get() = sdkInt in 33..37
 
     /**
-     * The ROM line the Device row shows, e.g. `HOS OS4.0`, `HOS V816` or `AOSP`.
+     * The ROM line the Device row shows, e.g. `HOS OS4.0`, `HOS V816 (Lunaris-3.12)` or `AOSP`.
      *
      * The labels arrive from resources so the acronyms stay translatable, while the version
-     * itself is the raw property the ROM published.
+     * itself is the raw property the ROM published. When a custom ROM retains Xiaomi props
+     * (Lunaris on a Xiaomi 13 still sets `V816`), the display name is appended so the row
+     * reflects what is actually running.
      */
     fun romLabel(hosLabel: String, aospLabel: String): String = when (romType) {
-        RomType.AOSP -> aospLabel
-        RomType.HOS -> if (hosVersion.isEmpty()) hosLabel else "$hosLabel $hosVersion"
+        RomType.AOSP -> if (romName.isEmpty()) aospLabel else "$aospLabel $romName"
+        RomType.HOS -> when {
+            romName.isNotEmpty() && hosVersion.isNotEmpty() -> "$hosLabel $hosVersion ($romName)"
+            romName.isNotEmpty() -> "$hosLabel $romName"
+            hosVersion.isEmpty() -> hosLabel
+            else -> "$hosLabel $hosVersion"
+        }
     }
 }
 

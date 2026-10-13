@@ -128,7 +128,10 @@ object ComputerEnginePatch {
 
     fun verify(text: String) {
         visibilityVerify(text)
-        if (INSTALLER_API.containsMatchIn(text)) {
+        // Installer verification only runs when the hook actually landed: an unsupported
+        // installer layout degrades to visibility-only (see [patch]), and requiring the
+        // installer hook here would reject that legitimate degrade.
+        if (text.contains(InstallerSourcePatch.HOOK)) {
             InstallerSourcePatch.verify(text)
         }
     }
@@ -306,6 +309,13 @@ object ComputerEnginePatch {
     fun patch(text: String): PatchOutcome {
         val visibility = patchVisibility(text)
         if (!INSTALLER_API.containsMatchIn(text)) return visibility
-        return InstallerSourcePatch.patch(visibility.content)
+        return try {
+            InstallerSourcePatch.patch(visibility.content)
+        } catch (e: UnsupportedLayoutException) {
+            // The installer filter is best-effort: an unsupported layout (A16 installing-
+            // first ctor, unexpected dataflow) degrades to visibility-only so the App Hide
+            // hook still ships. Failing closed here would lose the whole file's hook.
+            visibility
+        }
     }
 }

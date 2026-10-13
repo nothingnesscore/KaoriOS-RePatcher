@@ -93,12 +93,12 @@ class ReleaseSync(private val assetsDir: File) {
         val cachedApk = assetsDir.resolve(APK_NAME)
         val apkTagFile = assetsDir.resolve(APK_TAG_FILE)
         if (apkAsset == null) {
-            // Drop a workspace APK synced from a different release so it cannot win over
-            // the bundled one; the tag file names the release the cached APK came from.
-            if (apkTagFile.isFile && apkTagFile.readText().trim() != tag) {
-                cachedApk.delete()
-                apkTagFile.delete()
-            }
+            // Drop any workspace APK so it cannot win over the bundled one: without a
+            // same-release APK asset the cached copy's provenance is unknown (a pre-beta.10
+            // workspace has no tag file), and a stale shadow would silently downgrade the
+            // priv-app overlay. The tag file is removed with it so the next sync starts clean.
+            cachedApk.delete()
+            apkTagFile.delete()
         } else {
             fetch(
                 apkAsset.getString("browser_download_url"),

@@ -183,13 +183,20 @@ object InstallerSourcePatch {
                             if (!modern || SUPPORTED_CONSTRUCTORS[descriptor] != args.size) {
                                 throw UnsupportedLayoutException("UNSUPPORTED_LAYOUT: InstallSourceInfo constructor")
                             }
-                            val tag = value(args[4])
-                            if (!tag.contains("installer") ||
-                                !tag.all { it == "installer" || it == "null" || it == "string" }
-                            ) {
+                            // AOSP 16 reordered the constructor to installing-first; the
+                            // installing argument is found by provenance, not by a fixed
+                            // index. The all-allowed filter rejects the initiating slot
+                            // (which can merge {unknown, installer} at a join) while the
+                            // clean installer slot always matches.
+                            val installingIdx = args.indexOfFirst { arg ->
+                                val t = value(arg)
+                                t.contains("installer") &&
+                                    t.all { it == "installer" || it == "null" || it == "string" }
+                            }
+                            if (installingIdx < 0) {
                                 throw UnsupportedLayoutException("UNSUPPORTED_LAYOUT: installing argument is not stock installer")
                             }
-                            sites[line.index] = args[4]
+                            sites[line.index] = args[installingIdx]
                             val receiver = value(args[0])
                             if (receiver.size != 1 || !receiver.first().startsWith("new:")) {
                                 throw UnsupportedLayoutException("UNSUPPORTED_LAYOUT: constructor receiver")

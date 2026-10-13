@@ -103,13 +103,21 @@ class SukiSUClient {
 
     fun collectDeviceSpec(): DeviceSpec {
         val status = rootStatus(refresh = true)
-        // HOS carries `ro.mi.os.version.name` (HyperOS) and/or `ro.miui.ui.version.*` (MIUI);
-        // an AOSP-derived ROM carries none of them, which is what separates the two families.
-        // The properties only label the ROM — whether `miui-services.jar` exists is probed with
-        // [fileExists] at pull time, because a debloated HOS can lose the file without them.
-        val hosVersion = getProperty("ro.mi.os.version.name")
-            .ifEmpty { getProperty("ro.miui.ui.version.name") }
-        val isHos = hosVersion.isNotEmpty() || getProperty("ro.miui.ui.version.code").isNotEmpty()
+        // HyperOS publishes `ro.mi.os.version.name`; legacy MIUI publishes `ro.miui.ui.version.*`.
+        // A custom ROM built on AOSP can retain the legacy MIUI props (Lunaris on a Xiaomi 13
+        // still sets `V816`) without running the Xiaomi stack, so the HyperOS-specific property
+        // is the primary signal and the legacy ones are a fallback. The properties only label
+        // the ROM — whether `miui-services.jar` exists is probed with [fileExists] at pull time,
+        // because a debloated HOS can lose the file without them.
+        val hyperOsVersion = getProperty("ro.mi.os.version.name")
+        val legacyMiuiVersion = getProperty("ro.miui.ui.version.name")
+        val hosVersion = hyperOsVersion.ifEmpty { legacyMiuiVersion }
+        val isHos = hyperOsVersion.isNotEmpty() ||
+            (legacyMiuiVersion.isNotEmpty() && getProperty("ro.miui.ui.version.code").isNotEmpty())
+        // Display name: custom ROMs put their branding here (`Lunaris-3.12`); stock builds
+        // put the build id (`UKQ1.231003.002`). Either is more truthful than a retained
+        // Xiaomi version property on an AOSP framework.
+        val romName = getProperty("ro.build.display.id")
         return DeviceSpec(
             arch = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown",
             abi = getProperty("ro.product.cpu.abi", android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty()),
@@ -121,6 +129,7 @@ class SukiSUClient {
             rootVersion = status.version,
             romType = if (isHos) RomType.HOS else RomType.AOSP,
             hosVersion = hosVersion,
+            romName = romName,
             vfsProvider = vfsProvider(),
         )
     }

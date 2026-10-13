@@ -162,4 +162,113 @@ class AospLayoutsTest {
         }
         assertContains(error.message!!, "also reads v0")
     }
+
+    // ── Android 16 shapes ─────────────────────────────────────────────────────
+
+    private val a16Keystore: String = javaClass
+        .getResource("/fixtures/a16_androidkeystorespi.smali")!!
+        .readText()
+
+    @Test
+    fun `a16 chain with label between aput and return patches and verifies`() {
+        // baksmali on AOSP 16 can emit `:cond_…` between the final aput and its return.
+        val span = chainSpan(a16Keystore)
+        val chain = a16Keystore.substring(span.start, span.endExclusive)
+        val labelled = chain.replaceFirst(
+            "    aput-object v2, v3, v4\n\n    .line 212\n    return-object v3",
+            "    aput-object v2, v3, v4\n    :cond_50\n\n    .line 212\n    return-object v3",
+        )
+        val fixture = a16Keystore.substring(0, span.start) + labelled + a16Keystore.substring(span.endExclusive)
+
+        val patched = KeyStoreSpiPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        val s = chainSpan(patched.content)
+        val patchedChain = patched.content.substring(s.start, s.endExclusive)
+        assertEquals(
+            1,
+            Regex(Regex.escape(KeyStoreSpiPatch.HOOK_SIGNATURE)).findAll(patchedChain).count(),
+        )
+        KeyStoreSpiPatch.verify(patched.content)
+    }
+
+    @Test
+    fun `a16 chain with move-object between aput and return patches and verifies`() {
+        // Some AOSP 16 builds route the final array through a move-object before returning.
+        val span = chainSpan(a16Keystore)
+        val chain = a16Keystore.substring(span.start, span.endExclusive)
+        val moved = chain.replaceFirst(
+            "    aput-object v2, v3, v4\n\n    .line 212\n    return-object v3",
+            "    aput-object v2, v3, v4\n    move-object v5, v3\n\n    .line 212\n    return-object v5",
+        )
+        val fixture = a16Keystore.substring(0, span.start) + moved + a16Keystore.substring(span.endExclusive)
+
+        val patched = KeyStoreSpiPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        val s = chainSpan(patched.content)
+        val patchedChain = patched.content.substring(s.start, s.endExclusive)
+        assertEquals(
+            1,
+            Regex(Regex.escape(KeyStoreSpiPatch.HOOK_SIGNATURE)).findAll(patchedChain).count(),
+        )
+        // The hook must write back to the moved register that the method returns.
+        assertContains(patchedChain, "move-result-object v5")
+        assertContains(patchedChain, "return-object v5")
+        KeyStoreSpiPatch.verify(patched.content)
+    }
+
+    @Test
+    fun `a16 generator with registers 16 reuses v14 without growing the frame`() {
+        // The A16 template parks the hook result in v14 of a `.registers 16` frame.
+        // Growing to 17 would push p0 to v16 and trip the register-encoding gate.
+        val body = """
+            .method public whitelist test-api generateKeyPair()Ljava/security/KeyPair;
+                .registers 16
+                invoke-direct {p0}, Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;->ensureKeystoreProvider()V
+
+                move-result-object p0
+                return-object p0
+            .end method
+        """.trimIndent()
+        val patched = KeyStoreGeneratorPatch.patch(body)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        assertTrue(patched.content.contains(".registers 16"), "frame must not grow")
+        assertContains(patched.content, "move-result-object v14")
+        KeyStoreGeneratorPatch.verify(patched.content)
+    }
+
+    @Test
+    fun `a16 generator with locals 1 reuses v0 without growing the frame`() {
+        val body = """
+            .method public whitelist test-api generateKeyPair()Ljava/security/KeyPair;
+                .locals 1
+                invoke-direct {p0}, Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;->ensureKeystoreProvider()V
+
+                move-result-object v0
+                return-object v0
+            .end method
+        """.trimIndent()
+        val patched = KeyStoreGeneratorPatch.patch(body)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        assertTrue(patched.content.contains(".locals 1"), "frame must not grow")
+        assertContains(patched.content, "move-result-object v0")
+        KeyStoreGeneratorPatch.verify(patched.content)
+    }
+
+    @Test
+    fun `a16 generator with zero locals grows by one`() {
+        val body = """
+            .method public whitelist test-api generateKeyPair()Ljava/security/KeyPair;
+                .registers 1
+                invoke-direct {p0}, Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;->ensureKeystoreProvider()V
+
+                move-result-object p0
+                return-object p0
+            .end method
+        """.trimIndent()
+        val patched = KeyStoreGeneratorPatch.patch(body)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        assertTrue(patched.content.contains(".registers 2"), "zero-local frame must grow by one")
+        assertContains(patched.content, "move-result-object v1")
+        KeyStoreGeneratorPatch.verify(patched.content)
+    }
 }

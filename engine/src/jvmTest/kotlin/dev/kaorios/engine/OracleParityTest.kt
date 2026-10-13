@@ -46,6 +46,23 @@ class OracleParityTest {
 
     private val cases = loadCases()
 
+    /**
+     * Cases where the Kotlin engine intentionally diverges from the Python reference.
+     *
+     * The reference is narrower on every one of these: it fails closed on installer
+     * layouts the engine now degrades to visibility-only (so App Hide still ships on
+     * A16/AOSP ROMs), and it grows the keystore-generator frame where the engine
+     * reuses the highest local (so the register-encoding gate stays green). The new
+     * behaviours are pinned by [dev.kaorios.engine.patch.AospLayoutsTest] and
+     * [dev.kaorios.engine.patch.PatchRegisterEncodingTest]; the oracle keeps the
+     * reference's output for cross-checking the port against the spec.
+     */
+    private val knownDivergent = setOf(
+        "extra_ComputerEngine_installer_modern",
+        "extra_ComputerEngine_installer_valid",
+        "inline_SAMPLE_KEYSTORE_GEN_HIGH_REGISTERS",
+    )
+
     /** All nine patchable files, so Build-spoof fixtures resolve alongside the hook targets. */
     private val allTargets = PatchEngine.targets(PatchMode.ALL_IN_ONE)
 
@@ -71,7 +88,7 @@ class OracleParityTest {
     @Test
     fun `kotlin engine matches the python reference on every case`() {
         val mismatches = mutableListOf<String>()
-        for (case in cases) {
+        for (case in cases.filter { it.name !in knownDivergent }) {
             val outcome = PatchEngine.applyTargetPatch(case.target, case.input, allTargets)
             if (outcome.status != case.status) {
                 mismatches += "${case.name}: status ${outcome.status} != ${case.status} (${outcome.error})"
@@ -102,7 +119,10 @@ class OracleParityTest {
 
     @Test
     fun `no rejected case ever yields modified content`() {
-        for (case in cases.filter { it.status == PatchStatus.UNSUPPORTED_LAYOUT || it.status == PatchStatus.FAILED }) {
+        for (case in cases.filter {
+            (it.status == PatchStatus.UNSUPPORTED_LAYOUT || it.status == PatchStatus.FAILED) &&
+                it.name !in knownDivergent
+        }) {
             val outcome = PatchEngine.applyTargetPatch(case.target, case.input, allTargets)
             assertEquals(case.input, outcome.content, "${case.name} must fail closed")
         }

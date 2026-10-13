@@ -456,6 +456,7 @@ class PatchViewModel(
             PatchLog.info(
                 "device: Android ${device.androidVersion} (SDK ${device.sdkInt}) " +
                     "${device.romType} ${device.hosVersion}".trimEnd() +
+                    (if (device.romName.isNotEmpty()) " \"${device.romName}\"" else "") +
                     " supported=${device.isSupported}"
             )
 
