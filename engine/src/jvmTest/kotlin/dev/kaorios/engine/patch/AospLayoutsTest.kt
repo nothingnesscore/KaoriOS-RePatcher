@@ -217,6 +217,29 @@ class AospLayoutsTest {
     }
 
     @Test
+    fun `a16 chain with arbitrary instruction between aput and return patches via lenient scan`() {
+        // R8/D8 on some A16 builds inserts instructions the exact regexes cannot express.
+        // The lenient line scan must find the aput by scanning backward from the return.
+        val span = chainSpan(a16Keystore)
+        val chain = a16Keystore.substring(span.start, span.endExclusive)
+        val withInstruction = chain.replaceFirst(
+            "    aput-object v2, v3, v4\n\n    .line 212\n    return-object v3",
+            "    aput-object v2, v3, v4\n    const/4 v6, 0x1\n\n    .line 212\n    return-object v3",
+        )
+        val fixture = a16Keystore.substring(0, span.start) + withInstruction + a16Keystore.substring(span.endExclusive)
+
+        val patched = KeyStoreSpiPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        val s = chainSpan(patched.content)
+        val patchedChain = patched.content.substring(s.start, s.endExclusive)
+        assertEquals(
+            1,
+            Regex(Regex.escape(KeyStoreSpiPatch.HOOK_SIGNATURE)).findAll(patchedChain).count(),
+        )
+        KeyStoreSpiPatch.verify(patched.content)
+    }
+
+    @Test
     fun `a16 generator with registers 16 reuses v14 without growing the frame`() {
         // The A16 template parks the hook result in v14 of a `.registers 16` frame.
         // Growing to 17 would push p0 to v16 and trip the register-encoding gate.

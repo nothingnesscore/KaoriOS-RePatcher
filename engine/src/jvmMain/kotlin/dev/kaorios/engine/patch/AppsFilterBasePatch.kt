@@ -36,6 +36,9 @@ object AppsFilterBasePatch {
     const val TRY_END = ":try_end_kaorios_hideapp"
     const val CATCH = ":catch_kaorios_hideapp"
 
+    /** Our own insert's fingerprints; their presence forces the byte-for-byte exact path. */
+    private val RESERVED = listOf(LABEL_STOCK, TRY_START, TRY_END, CATCH)
+
     const val HOOK_PREFIX = "KaoriosHook;->shouldHideAppList(Landroid/content/ContentResolver;"
 
     private const val PARAM_COUNT = 6
@@ -168,9 +171,20 @@ object AppsFilterBasePatch {
         val injOffset = findInjectionPoint(stripped)
         val tail = stripped.substring(injOffset)
         if (!tail.startsWith(expected)) {
-            throw PatchVerificationException(
-                "hook sequence does not match the exact fail-closed template shape"
-            )
+            // Our own reserved labels appearing anywhere mean this is (a corrupted form of)
+            // our insert - pin those byte-for-byte. A file carrying the hook without them is
+            // a foreign shape (the upstream Toolbox template, a manual guide insert) and is
+            // accepted structurally instead, so an already-patched device re-runs as
+            // ALREADY_PATCHED rather than failing the whole build closed.
+            val foreign = RESERVED.none { stripped.contains(it) }
+            if (!foreign) {
+                throw PatchVerificationException(
+                    "hook sequence does not match the exact fail-closed template shape; " +
+                        "insert begins: ${shapeExcerpt(tail)}"
+                )
+            }
+            verifySemantic(tail)
+            return
         }
         for (label in listOf(LABEL_STOCK, CATCH)) {
             val defined = Regex("(?m)^\\s*" + Regex.escape(label) + "\\s*$").findAll(stripped).count()
@@ -186,4 +200,64 @@ object AppsFilterBasePatch {
             throw PatchVerificationException("expected exactly one catch-all for the hook; found $caught")
         }
     }
+
+    /**
+     * Structural acceptance for shapes our exact emit does not produce: the template's
+     * stock-label variant or a foreign tool's insert. Checks the invariants the hook needs
+     * to function — insert at the method head, a null-guard on the target package, a
+     * catch-all around the call, a gated `return 1`, and a fall-through label the stock
+     * body continues from — without pinning labels or registers.
+     */
+    private fun verifySemantic(tail: String) {
+        fun fail(msg: String): Nothing =
+            throw PatchVerificationException("semantic check: $msg; insert begins: ${shapeExcerpt(tail)}")
+        val lines = Smali.splitKeepEnds(tail).map { it.trim() }.filter { it.isNotEmpty() }
+        val moveRe = Regex("move-object(?:/from16)?\\s+([vp]\\d+),\\s*p4")
+        val directGuard = Regex("if-eqz\\s+p4,\\s*:")
+        val hookIdx = lines.indexOfFirst { it.contains(HOOK_PREFIX) }
+        if (hookIdx < 0) fail("hook call not found after the headers")
+        // The insert must begin at the method head; at most one stock-looking leading line
+        // is tolerated (the template's staged callingUid move ahead of its p4 move).
+        val start = lines.indexOfFirst { moveRe.containsMatchIn(it) || directGuard.containsMatchIn(it) }
+        if (start < 0) fail("no null-guard move of targetPkgSetting (p4)")
+        if (start > 1) fail("insert does not begin at the method head")
+        if (hookIdx < start) fail("hook call precedes the injected block")
+        val catchIdx = (hookIdx + 1 until lines.size)
+            .firstOrNull { lines[it].startsWith(".catch Ljava/lang/Throwable;") }
+            ?: fail("no catch-all Throwable after the hook")
+        val block = lines.subList(start, catchIdx + 1)
+        val reg = block.firstNotNullOfOrNull { moveRe.find(it)?.groupValues?.get(1) }
+        if (reg == null) {
+            if (block.none { directGuard.containsMatchIn(it) }) fail("no guard on the target package")
+        } else if (block.none { Regex("if-eqz\\s+" + Regex.escape(reg) + ",\\s*:").containsMatchIn(it) }) {
+            fail("no branch on the guarded target package")
+        }
+        val relHook = block.indexOfFirst { it.contains(HOOK_PREFIX) }
+        val result = block.getOrNull(relHook + 1)
+            ?.let { Regex("move-result\\s+([vp]\\d+)").find(it)?.groupValues?.get(1) }
+            ?: fail("hook call is not followed by move-result")
+        val gate = block.getOrNull(relHook + 2)
+            ?.let { Regex("if-eqz\\s+" + Regex.escape(result) + ",\\s*(:\\S+)").find(it) }
+            ?: fail("hook result not gated by a branch")
+        val label = gate.groupValues[1]
+        if (block.getOrNull(relHook + 3)
+                ?.let { Regex("const/(?:4|16)\\s+" + Regex.escape(result) + ",\\s*0x1").matches(it) } != true
+        ) {
+            fail("no const-1 on the hide path")
+        }
+        if (block.getOrNull(relHook + 4)?.let { Regex("return\\s+" + Regex.escape(result)).matches(it) } != true) {
+            fail("no return on the hide path")
+        }
+        val labelDef = lines.indexOfFirst { it == label }
+        if (labelDef < relHook + start + 5 || labelDef > relHook + start + 9) {
+            fail("$label is not the fall-through after the hide path")
+        }
+        if (lines.count { it == label } != 1) fail("$label must be defined exactly once")
+    }
+
+    /** One-line dump of an insert's opening lines; the whole failure channel is one log row. */
+    private fun shapeExcerpt(tail: String): String =
+        Smali.splitKeepEnds(tail)
+            .map { it.trim() }.filter { it.isNotEmpty() }
+            .take(8).joinToString(" | ")
 }

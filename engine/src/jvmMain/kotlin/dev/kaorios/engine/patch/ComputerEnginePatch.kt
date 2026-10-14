@@ -115,14 +115,82 @@ object ComputerEnginePatch {
         val scratch = localsCount - 3
         val oldBase = scratch - width
         val labelMatch = Regex("if-eqz\\s+v${oldBase + 1},\\s*(:\\S+)").find(body)
-        if (labelMatch == null || oldBase < 0 || scratch + 2 > 255) {
-            throw UnsupportedLayoutException("invalid high-register hook frame")
+        if (labelMatch != null && oldBase >= 0 && scratch + 2 <= 255) {
+            val expected = highHook(paramCount, oldBase, scratch, labelMatch.groupValues[1], "\n")
+            if (compact(body).contains(compact(expected))) return
         }
-        val expected = highHook(paramCount, oldBase, scratch, labelMatch.groupValues[1], "\n")
-        fun compact(value: String) =
-            value.lines().filter { it.isNotBlank() }.joinToString("\n") { it.trim() }
-        if (!compact(body).contains(compact(expected))) {
-            throw UnsupportedLayoutException("incorrect high-register caller/package/user or return sequence")
+        // Not our frame: a foreign patcher staged the parameters differently. Accept any
+        // body that still carries the hook's structural invariants, so an already-patched
+        // device re-runs as ALREADY_PATCHED instead of failing the build closed.
+        verifyVisibilitySemantic(body)
+    }
+
+    private fun compact(value: String): String =
+        value.lines().filter { it.isNotBlank() }.joinToString("\n") { it.trim() }
+
+    /**
+     * Structural acceptance for a foreign visibility insert — the upstream app or a manual
+     * guide shape with different staging, labels or register allocation. Accepts any body
+     * carrying the invariants: one three-operand hook call, the getPackageName guard chain
+     * under the same label, and the result gated into a `return 1` that falls through to
+     * the stock body. Failures quote the insert's own lines — the log row is the only
+     * channel a remote tester has to reveal their shape.
+     */
+    private fun verifyVisibilitySemantic(body: String) {
+        val lines = Smali.splitKeepEnds(body)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith(".") && !it.startsWith("#") }
+        fun dump(): String {
+            val at = lines.indexOfFirst { it.contains(HOOK_TARGET) }
+            val from = ((if (at >= 0) at else 0) - 4).coerceAtLeast(0)
+            return lines.subList(from, minOf(lines.size, from + 14)).joinToString(" | ")
+        }
+        fun fail(msg: String): Nothing = failVerification("$msg; shape: ${dump()}")
+        val hookIdx = lines.indexOfFirst { it.startsWith("invoke-static") && it.contains(HOOK_TARGET) }
+        if (hookIdx < 0) fail("hook call not found")
+        val operands = Regex("invoke-static(?:/range)?\\s*\\{([^}]+)\\}").find(lines[hookIdx])
+            ?.groupValues?.get(1) ?: fail("hook invoke has no register list")
+        val arity = if (".." in operands) {
+            Regex("v(\\d+)\\s+\\.\\.\\s+v(\\d+)").find(operands)?.let { m ->
+                m.groupValues[2].toInt() - m.groupValues[1].toInt() + 1
+            } ?: fail("hook range operand list is malformed")
+        } else {
+            operands.split(",").size
+        }
+        if (arity != 3) fail("hook call does not pass uid, package and user")
+        val result = lines.getOrNull(hookIdx + 1)
+            ?.let { Regex("move-result\\s+([vp]\\d+)").find(it)?.groupValues?.get(1) }
+            ?: fail("hook call is not followed by move-result")
+        val label = lines.getOrNull(hookIdx + 2)
+            ?.let { Regex("if-eqz\\s+" + Regex.escape(result) + ",\\s*(:\\S+)").find(it)?.groupValues?.get(1) }
+            ?: fail("hook result not gated by a branch")
+        if (lines.getOrNull(hookIdx + 3)
+                ?.let { Regex("const/(?:4|16)\\s+" + Regex.escape(result) + ",\\s*0x1").matches(it) } != true
+        ) {
+            fail("no const-1 on the hide path")
+        }
+        if (lines.getOrNull(hookIdx + 4)?.let { Regex("return\\s+" + Regex.escape(result)).matches(it) } != true) {
+            fail("no return on the hide path")
+        }
+        val gpIdx = (hookIdx - 1 downTo maxOf(0, hookIdx - 14)).firstOrNull {
+            lines[it].startsWith("invoke-") && lines[it].contains("getPackageName()Ljava/lang/String;")
+        } ?: fail("no getPackageName call before the hook")
+        val pkg = lines.getOrNull(gpIdx + 1)
+            ?.let { Regex("move-result-object\\s+([vp]\\d+)").find(it)?.groupValues?.get(1) }
+            ?: fail("getPackageName is not followed by move-result-object")
+        if (lines.getOrNull(gpIdx + 2)
+                ?.let { Regex("if-eqz\\s+" + Regex.escape(pkg) + ",\\s*" + Regex.escape(label)).matches(it) } != true
+        ) {
+            fail("package name not guarded under $label")
+        }
+        val guarded = (gpIdx - 1 downTo maxOf(0, gpIdx - 16)).any {
+            Regex("if-eqz\\s+[vp]\\d+,\\s*" + Regex.escape(label)).containsMatchIn(lines[it])
+        }
+        if (!guarded) fail("no caller null-guard before getPackageName")
+        val labelIdx = lines.indexOfFirst { it == label }
+        if (lines.count { it == label } != 1) fail("$label must be defined exactly once")
+        if (labelIdx < hookIdx + 5 || labelIdx > hookIdx + 9) {
+            fail("$label is not the fall-through after the hide path")
         }
     }
 
@@ -144,6 +212,18 @@ object ComputerEnginePatch {
         if (count != 1) {
             failVerification("expected exactly one shouldHideAppListForCaller hook; found $count")
         }
+        // Port of upstream `_verify_visibility` at 2bdca9a: the hook must sit between the
+        // register directive and the method's first terminating instruction, otherwise the
+        // insert is unreachable dead code a verifier pass would happily ship.
+        val directive = Regex("\\.(?:locals|registers)[ \\t]+\\d+").find(body)
+            ?: failVerification("missing register directive for visibility hook")
+        val hookAt = body.indexOf(HOOK_TARGET)
+        if (hookAt > directive.range.last) {
+            val prefix = body.substring(directive.range.last + 1, hookAt)
+            if (Regex("(?m)^[ \\t]*(?:return(?:-\\w+)?|throw)\\b").containsMatchIn(prefix)) {
+                failVerification("hook must precede a terminating instruction")
+            }
+        }
         if (!body.contains(GET_PACKAGE_NAME_CALL)) {
             verifyHighRegister(body, info.paramCount)
             return
@@ -159,7 +239,9 @@ object ComputerEnginePatch {
                 "\\s*return\\s+\\3\\s*(?:\\r?\\n)+\\s*\\1"
         )
         if (!pattern.containsMatchIn(body)) {
-            failVerification("hook sequence does not match exact fail-closed return structure or register order")
+            // Exact emitter shape first; a foreign insert (different staging or label)
+            // still passes when it carries the same invariants.
+            verifyVisibilitySemantic(body)
         }
     }
 

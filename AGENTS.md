@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 134-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 148-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -290,8 +290,9 @@ adb logcat -s KaoriosPatcher
 `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1.md` (`framework.jar` §2-§6, `services.jar` §1-§3 and
 `Optional patches` §1-§2), `Disable_Secure_Flag.md`, and `CorePatch.md` §1-§3 — keyed by
 `GuideCheck.REVISION`, which names the upstream commit all three were read at (adding a table
-does not move it; re-reading the guides at a new commit does; it is `c645e64` — the fork head
-as of v2.0.6.1+, re-read for beta.10 with no new patch targets). It
+does not move it; re-reading the guides at a new commit does; it is `2bdca9a` — re-read after the
+2bdca9a guide rewrite, target inventory unchanged, no new patch targets; beta.10/11 shipped on
+`c645e64`). It
 reports each expected file `ok` / `MISSING` / `REJECTED`, plus `absent` for the three sites the
 guides themselves let a ROM skip, and names the entries deliberately out of scope —
 `SettingsProvider.smali` (retired upstream at `8c752fd`; the guide says keep the stock

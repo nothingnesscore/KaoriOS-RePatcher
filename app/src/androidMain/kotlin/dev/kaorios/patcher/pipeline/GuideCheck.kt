@@ -21,8 +21,12 @@ import dev.kaorios.engine.patch.PatchStatus
  */
 object GuideCheck {
 
-    /** Upstream revision this table was re-read at; bump it whenever the guide is re-read. */
-    const val REVISION = "c645e64"
+    /**
+     * Upstream revision this table was re-read at; bump it whenever the guide is re-read.
+     * Re-read at 2bdca9a after the guide rewrite — target inventory unchanged, only the
+     * surrounding procedure was restructured.
+     */
+    const val REVISION = "2bdca9a"
 
     /** Guide `framework.jar` §2-§6, in guide order. §1 is the payload import, not a smali target. */
     private val FRAMEWORK_HOOKS = listOf(

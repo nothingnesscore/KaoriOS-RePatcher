@@ -31,8 +31,10 @@ object BuildSpoofPatch {
             .replace(text) { m -> m.groups[1]!!.value + m.groups[2]!!.value }
 
     private fun nullifyString(text: String, field: String): String =
-        Regex("(\\.field public static[^\\n]*?)final([^\\n]*? ${Regex.escape(field)}:Ljava/lang/String;)")
-            .replace(text) { m -> m.groups[1]!!.value + m.groups[2]!!.value + " = null" }
+        Regex(
+            "(\\.field public static[^\\n]*?)final([^\\n]*? ${Regex.escape(field)}:Ljava/lang/String;)" +
+                "(?:[ \\t]*=[^\\r\\n]*)?"
+        ).replace(text) { m -> m.groups[1]!!.value + m.groups[2]!!.value + " = null" }
 
     fun patchBuild(content: String): PatchOutcome {
         val anchor = NULL_STRING_FIELDS.first()

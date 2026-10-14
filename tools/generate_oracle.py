@@ -93,6 +93,11 @@ def inline_fixtures():
 FIXTURE_TO_TARGET = {
     "computer_engine": "ComputerEngine.smali",
     "system_server": "SystemServer.smali",
+    # aosp15_androidkeystorespi is in SKIP_FIXTURES, so this token only ever
+    # reaches the A16 fixture (added at c4bc6cd but never mapped — the generator
+    # has exited here ever since); the reference patches that shape, so it is a
+    # real differential case rather than an engine extension.
+    "keystorespi": "AndroidKeyStoreSpi.smali",
 }
 
 # Fixtures that live in the same directory for AospLayoutsTest but are not differential

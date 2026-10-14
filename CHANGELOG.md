@@ -7,6 +7,32 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.12] - 2026-10-14
+
+- **Fix — devices already patched by another tool no longer fail closed (A15 report):** the
+  App Hide verifiers accept a foreign hook shape — the upstream Toolbox template's
+  stock-label insert or a manual guide insert — when the structural invariants hold
+  (insert at the method head, null-guard, catch-all, hook result gated into `return 1`,
+  fall-through label defined once), so a re-run reports `ALREADY_PATCHED` instead of
+  `FAILED` / `UNSUPPORTED_LAYOUT` killing the whole module. Our own insert (reserved labels
+  present) is still checked byte-for-byte, and broken shapes are still rejected — every
+  failure now quotes the offending insert's lines, which is the only channel a remote
+  tester has to show a shape we have never seen.
+- **Fix — Android 16 keystore chain finds what exact regexes miss:** when the strict
+  aput→return pattern finds nothing, a line scan anchors on each `return-object` and walks
+  back to its `aput-object` (following `move-object` hops, stopping at control-flow
+  boundaries); an unmatched ROM now reports `aput=… ret=…` shape diagnostics instead of a
+  bare "leaf-array return not found".
+- **Fix — Build spoof strips stock field initializers (upstream `2bdca9a`):** an
+  initialized stock field (`BRAND:Ljava/lang/String; = "google"`) previously produced
+  `= null = "google"`, which no assembler accepts — the differential oracle had that
+  malformed output pinned as expected until now. AOSP-like ROMs patch cleanly.
+- **Fix — a pre-existing visibility hook below an unconditional `return`/`throw` is
+  rejected as dead code (upstream `2bdca9a`).**
+- **Change — upstream reference moved `c645e64` → `2bdca9a`:** guide conformance re-read
+  (target inventory unchanged), the differential oracle gains an A16 keystore case and the
+  generator stops failing on the fixture added in beta.11.
+
 ## [v1.2.0-beta.11] - 2026-10-13
 
 - **Fix — Android 16 / AOSP ROMs no longer fail closed with three `UNSUPPORTED_LAYOUT`

@@ -68,6 +68,62 @@ class AppsFilterBasePatchTest {
         return out.content
     }
 
+    /**
+     * The upstream template's stock-label insert: no reserved labels, different register
+     * allocation, staged callingUid ahead of the guard — the foreign shape a device
+     * patched by the Toolbox app carries.
+     */
+    private val foreignTemplate = stock.replace(
+        "    move/from16 v6, p5",
+        listOf(
+            "    move/from16 v0, p2",
+            "    move-object/from16 v1, p4",
+            "    if-eqz v1, :cond_13",
+            "    :try_start_6",
+            "    invoke-interface {v1}, Lcom/android/server/pm/pkg/PackageStateInternal;->" +
+                "getPackageName()Ljava/lang/String;",
+            "    move-result-object v2",
+            "    const/4 v3, 0x0",
+            "    invoke-static {v3, v2}, ${AppsFilterBasePatch.HOOK_TARGET}",
+            "    move-result v0",
+            "    if-eqz v0, :cond_13",
+            "    const/4 v0, 0x1",
+            "    return v0",
+            "    :try_end_13",
+            "    .catch Ljava/lang/Throwable; {:try_start_6 .. :try_end_13} :catch_13",
+            "    :catch_13",
+            "    :cond_13",
+            "    move/from16 v6, p5",
+        ).joinToString("\n")
+    )
+
+    @Test
+    fun `the upstream template stock-label shape verifies as already patched`() {
+        val out = AppsFilterBasePatch.patch(foreignTemplate)
+        assertEquals(PatchStatus.ALREADY_PATCHED, out.status)
+        assertEquals(foreignTemplate, out.content)
+        AppsFilterBasePatch.verify(out.content)
+    }
+
+    @Test
+    fun `a foreign shape not at the method head is rejected`() {
+        val moved = foreignTemplate.replace(
+            "    move/from16 v0, p2",
+            "    move/from16 v6, p5\n    move/from16 v0, p2"
+        )
+        assertFailsWith<PatchVerificationException> { AppsFilterBasePatch.verify(moved) }
+    }
+
+    @Test
+    fun `a foreign shape without a catch-all is rejected and quotes its insert`() {
+        val noCatch = foreignTemplate.lines()
+            .filterNot { it.trim().startsWith(".catch Ljava/lang/Throwable") }
+            .joinToString("\n")
+        val e = assertFailsWith<PatchVerificationException> { AppsFilterBasePatch.verify(noCatch) }
+        assertContains(e.message.orEmpty(), "semantic check:")
+        assertContains(e.message.orEmpty(), "insert begins:")
+    }
+
     @Test
     fun `patch inserts the template shape after the headers`() {
         val patched = patchOk()

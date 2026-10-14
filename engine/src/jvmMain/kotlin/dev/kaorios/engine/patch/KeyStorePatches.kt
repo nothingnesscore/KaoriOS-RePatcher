@@ -219,21 +219,35 @@ object KeyStoreSpiPatch {
         // beyond the (3,1) shape every non-matched return must be provably null.
         // AOSP 16 can route the final array through a `move-object` before the
         // return, so both the direct and the moved shapes are accepted.
-        val direct = APUT_RETURN.findAll(methodBody).toList()
-        val moved = APUT_MOVE_RETURN.findAll(methodBody).toList()
-        val matches = (direct + moved).sortedBy { it.range.first }
+        var matches: List<HookPoint> =
+            (APUT_RETURN.findAll(methodBody).toList() + APUT_MOVE_RETURN.findAll(methodBody).toList())
+                .sortedBy { it.range.first }
+                .map { m ->
+                    HookPoint(
+                        aputStart = m.range.first,
+                        retText = m.groups["ret"]!!.value,
+                        retStart = m.groups["ret"]!!.range.first,
+                    )
+                }
         if (matches.isEmpty()) {
-            throw UnsupportedLayoutException("engineGetCertificateChain: leaf-array return not found")
+            // R8/D8 codegen on some A16 builds inserts instructions the exact regexes
+            // cannot express; the line scan tolerates any content between aput and return.
+            matches = lenientFind(methodBody)
+        }
+        if (matches.isEmpty()) {
+            throw UnsupportedLayoutException(
+                "engineGetCertificateChain: leaf-array return not found (${shapeDiagnostics(methodBody)})"
+            )
         }
         val returns = RETURN_OBJECT.findAll(methodBody).map { it.groupValues[1] }.toList()
         if (returns.size == 3 && matches.size == 1) {
             val nullReg = returns[0]
             // The middle return is what the method actually returns: the array itself on
             // the direct shape, or the `move-object` destination on the A16 moved shape.
-            val retReg = matches[0].groups["ret"]!!.value.substringAfterLast(' ').trim()
+            val retReg = matches[0].retReg
             if (returns != listOf(nullReg, retReg, nullReg) ||
                 !Regex("const/4\\s+${Regex.escape(nullReg)},\\s*0x0\\b")
-                    .containsMatchIn(methodBody.substring(0, matches[0].range.first))
+                    .containsMatchIn(methodBody.substring(0, matches[0].aputStart))
             ) {
                 throw UnsupportedLayoutException("engineGetCertificateChain: unsupported null-return layout")
             }
@@ -245,9 +259,9 @@ object KeyStoreSpiPatch {
             // The equal-count case falls in here too and is vacuously satisfied, since
             // every return is then matched.
             val nullConsts = Regex("const/4\\s+([vp]\\d+),\\s*0x0\\b")
-                .findAll(methodBody.substring(0, matches.first().range.first))
+                .findAll(methodBody.substring(0, matches.first().aputStart))
                 .map { it.groupValues[1] }.toSet()
-            val hooked = matches.map { it.groups["ret"]!!.range.first }.toSet()
+            val hooked = matches.map { it.retStart }.toSet()
             for (ret in RETURN_OBJECT.findAll(methodBody)) {
                 if (ret.range.first !in hooked && ret.groupValues[1] !in nullConsts) {
                     throw UnsupportedLayoutException("engineGetCertificateChain: unsupported return layout")
@@ -264,8 +278,7 @@ object KeyStoreSpiPatch {
         for (match in matches.asReversed()) {
             // The hook targets the register the method returns: the array itself on the
             // direct shape, or the `move-object` destination on the A16 moved shape.
-            val retText = match.groups["ret"]!!.value
-            val retReg = retText.substringAfterLast(' ').trim()
+            val retReg = match.retReg
             val physical = if (retReg.startsWith("p")) {
                 paramBase + retReg.substring(1).toInt()
             } else {
@@ -277,7 +290,7 @@ object KeyStoreSpiPatch {
                 "invoke-static {$retReg}, $HOOK_SIGNATURE"
             }
             val inject = "$invoke\n    move-result-object $retReg\n    "
-            val retStart = match.groups["ret"]!!.range.first
+            val retStart = match.retStart
             newBody = newBody.substring(0, retStart) + inject + newBody.substring(retStart)
         }
         return (content.substring(0, span.start) + newBody + content.substring(span.endExclusive)) to true
@@ -339,6 +352,7 @@ object KeyStoreSpiPatch {
             failVerification("AndroidKeyStoreSpi: no return-object found in engineGetCertificateChain")
         }
         val pairs = PAIRED_HOOK.findAll(body).toList()
+            .ifEmpty { PAIRED_HOOK_LENIENT.findAll(body).toList() }
         if (returnCount == 3) {
             // The upstream shape: one populated return between two null returns.
             if (hookCount != 1) {
@@ -422,4 +436,88 @@ object KeyStoreSpiPatch {
             DEBUG_GAP +
             "return-object\\s+\\k<target>"
     )
+
+    /**
+     * Lenient variant used only when the strict pattern finds no pairs: allows arbitrary
+     * instructions between the aput and the invoke (R8/D8 codegen variations). The
+     * invoke → move-result → return triplet stays strict so a hook that does not
+     * directly dominate its return is still rejected.
+     */
+    private val PAIRED_HOOK_LENIENT = Regex(
+        "aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+" +
+            "(?:[^\\n]*\\n){0,15}?[ \\t]*" +
+            "invoke-static(?:/range)?\\s*\\{(?<target>[vp]\\d+)(?:\\s*\\.\\.\\s*\\k<target>)?\\},\\s*" +
+            HOOK_PATTERN +
+            DEBUG_GAP +
+            "move-result-object\\s+\\k<target>" +
+            DEBUG_GAP +
+            "return-object\\s+\\k<target>"
+    )
+
+    /**
+     * A hook injection point located by either the exact regex or the lenient line scan:
+     * the position of the `aput-object` and the `return-object` it precedes.
+     */
+    private data class HookPoint(val aputStart: Int, val retText: String, val retStart: Int) {
+        val retReg: String get() = retText.substringAfterLast(' ').trim()
+    }
+
+    /**
+     * Line-based fallback for R8/D8 codegen variations the exact regexes cannot express:
+     * scan backward from each `return-object` to the nearest `aput-object` into the same
+     * register (following `move-object` hops), tolerating any instructions in between.
+     * Stops at `.end method` and at another `return-object` so a match never spans a
+     * control-flow boundary.
+     */
+    private fun lenientFind(methodBody: String): List<HookPoint> {
+        val lines = Smali.splitKeepEnds(methodBody)
+        val offsets = IntArray(lines.size)
+        var off = 0
+        for (i in lines.indices) {
+            offsets[i] = off
+            off += lines[i].length
+        }
+        val aputRe = Regex("aput-object\\s+[vp]\\d+,\\s*([vp]\\d+),\\s*[vp]\\d+")
+        val moveRe = Regex("move-object(?:/from16)?\\s+([vp]\\d+),\\s*([vp]\\d+)")
+        val points = mutableListOf<HookPoint>()
+        for (i in lines.indices) {
+            val retMatch = RETURN_OBJECT.find(lines[i]) ?: continue
+            val retReg = retMatch.groupValues[1]
+            var target = retReg
+            for (j in i - 1 downTo maxOf(0, i - 30)) {
+                val line = lines[j]
+                if (line.contains(".end method")) break
+                if (RETURN_OBJECT.containsMatchIn(line)) break
+                val aput = aputRe.find(line)
+                if (aput != null && aput.groupValues[1] == target) {
+                    points.add(
+                        HookPoint(
+                            aputStart = offsets[j] + aput.range.first,
+                            retText = retMatch.value,
+                            retStart = offsets[i] + retMatch.range.first,
+                        )
+                    )
+                    break
+                }
+                val move = moveRe.find(line)
+                if (move != null && move.groupValues[1] == target) {
+                    target = move.groupValues[2]
+                }
+            }
+        }
+        return points
+    }
+
+    /**
+     * Concise shape summary for the failure message: how many aput / return instructions
+     * the method carries and where they sit, so an unmatched ROM reports what it actually
+     * looks like instead of just "not found".
+     */
+    private fun shapeDiagnostics(methodBody: String): String {
+        val aputs = Regex("aput-object\\s+[vp]\\d+,\\s*([vp]\\d+),\\s*[vp]\\d+")
+            .findAll(methodBody).map { it.groupValues[1] }.toList()
+        val returns = RETURN_OBJECT.findAll(methodBody)
+            .map { it.groupValues[1] }.toList()
+        return "aput=${aputs.size}(${aputs.joinToString(",")}) ret=${returns.size}(${returns.joinToString(",")})"
+    }
 }
