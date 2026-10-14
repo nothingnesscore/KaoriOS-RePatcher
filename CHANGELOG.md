@@ -7,6 +7,25 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.13] - 2026-10-14
+
+- **Fix — release sync can no longer settle on a stale dex (A16 report):** the version key
+  ignored the fourth tag segment, so v2.0.6.1 and v2.0.6.0 *tied* and list order decided —
+  which is how a rebuilt v2.0.6.0 kept winning. All four segments now count, and when
+  `api.github.com` is unreachable (60 unauthenticated requests an hour per IP, blocked
+  outright in some regions) the sync falls back to the public `releases.atom` feed for the
+  tag and downloads from `github.com/releases/download` — never downgrading the workspace's
+  recorded tag — instead of silently shipping the offline cache forever. `/releases/latest`
+  is not used as a fallback: it 302s to v2.0.6.0.
+- **Fix — Android 16 keystore chain: wider scan and a self-explaining failure.** The
+  lenient aput→return scan window grows 30 → 100 lines (baksmali debug directives run ~3
+  lines per instruction, so a loop-exit tail could hide the aput past the old bound), with
+  the verify-side pairing widened to match. A chain that still cannot pair now reports its
+  full neighbourhood — `aput=… ret=…` counts plus `ret#n@<line><- …` / `aput#n@<line>> …`
+  context — so the next tester log shows the exact instruction the scan could not follow
+  instead of costing another blind round trip. The HOS V816 report's `WindowManagerService`
+  absence was benign (guide-optional); only the keystore miss failed the run.
+
 ## [v1.2.0-beta.12] - 2026-10-14
 
 - **Fix — devices already patched by another tool no longer fail closed (A15 report):** the

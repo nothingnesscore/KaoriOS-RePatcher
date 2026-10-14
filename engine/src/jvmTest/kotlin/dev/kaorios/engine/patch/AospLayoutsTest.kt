@@ -240,6 +240,59 @@ class AospLayoutsTest {
     }
 
     @Test
+    fun `a16 chain with a wide debug-heavy gap patches via the lenient scan`() {
+        // baksmali debug directives run ~3 lines per instruction, so a loop-exit tail can
+        // push the final aput past a small backward window (the shape HOS A16 reported).
+        // The strict patterns refuse the real instructions in the gap, so only the widened
+        // lenient window can pair the aput with its return.
+        val span = chainSpan(a16Keystore)
+        val chain = a16Keystore.substring(span.start, span.endExclusive)
+        val gap = buildString { repeat(20) { append("    const/4 v6, 0x1\n\n    .line 99\n") } }
+        val wide = chain.replaceFirst(
+            "    aput-object v2, v3, v4\n\n    .line 212\n    return-object v3",
+            "    aput-object v2, v3, v4\n$gap\n    .line 212\n    return-object v3",
+        )
+        val fixture = a16Keystore.substring(0, span.start) + wide + a16Keystore.substring(span.endExclusive)
+
+        val patched = KeyStoreSpiPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status)
+        val s = chainSpan(patched.content)
+        val patchedChain = patched.content.substring(s.start, s.endExclusive)
+        assertEquals(
+            1,
+            Regex(Regex.escape(KeyStoreSpiPatch.HOOK_SIGNATURE)).findAll(patchedChain).count(),
+        )
+        assertContains(patchedChain, "move-result-object v3")
+        KeyStoreSpiPatch.verify(patched.content)
+
+        val again = KeyStoreSpiPatch.patch(patched.content)
+        assertEquals(PatchStatus.ALREADY_PATCHED, again.status)
+        assertEquals(patched.content, again.content, "second pass must be byte-identical")
+    }
+
+    @Test
+    fun `unmatched chain reports the neighbourhood feeding each return`() {
+        // A ROM whose middle return does not pair with the built array must fail closed
+        // *and* carry enough context in the message to see what its returns look like —
+        // the count alone cost a blind round trip on HOS V816.
+        val span = chainSpan(a16Keystore)
+        val chain = a16Keystore.substring(span.start, span.endExclusive)
+        val broken = chain.replaceFirst("    return-object v3\n", "    return-object p1\n")
+        val fixture = a16Keystore.substring(0, span.start) + broken + a16Keystore.substring(span.endExclusive)
+
+        val error = assertFailsWith<UnsupportedLayoutException> { KeyStoreSpiPatch.patch(fixture) }
+        val message = error.message!!
+        assertContains(message, "aput=2(v3,v3)")
+        assertContains(message, "ret=3(v1,p1,v1)")
+        // The neighbourhood markers: what fed the unpairable middle return, and what the
+        // array writes are followed by.
+        assertContains(message, "ret#1@")
+        assertContains(message, "<-")
+        assertContains(message, "aput-object v2, v3, v4")
+        assertContains(message, "aput#1@")
+    }
+
+    @Test
     fun `a16 generator with registers 16 reuses v14 without growing the frame`() {
         // The A16 template parks the hook result in v14 of a `.registers 16` frame.
         // Growing to 17 would push p0 to v16 and trip the register-encoding gate.

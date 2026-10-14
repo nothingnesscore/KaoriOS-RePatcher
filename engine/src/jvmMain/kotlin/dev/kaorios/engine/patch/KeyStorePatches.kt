@@ -132,6 +132,13 @@ object KeyStoreSpiPatch {
     private const val LEAF_LABEL = ":kaorios_certificate_stock"
     private val DIRECTIVE = Regex("\\.(registers|locals)\\s+(\\d+)")
 
+    /** Lines of neighbourhood [shapeDiagnostics] keeps around each return / aput. */
+    private const val CONTEXT_LINES = 6
+    private const val APUT_CONTEXT_LINES = 2
+
+    /** Backward scan bound in [lenientFind]; debug directives make lines cheap. */
+    private const val LENIENT_WINDOW = 100
+
     /**
      * Debug directives, blank lines and label lines the reference tolerates between
      * instructions. Labels matter on AOSP 16: baksmali can emit `:cond_…` between the
@@ -439,13 +446,14 @@ object KeyStoreSpiPatch {
 
     /**
      * Lenient variant used only when the strict pattern finds no pairs: allows arbitrary
-     * instructions between the aput and the invoke (R8/D8 codegen variations). The
-     * invoke → move-result → return triplet stays strict so a hook that does not
-     * directly dominate its return is still rejected.
+     * instructions between the aput and the invoke (R8/D8 codegen variations), bounded by
+     * the same [LENIENT_WINDOW] the patch-time scan uses so a shape the patcher accepted
+     * can still be re-verified afterwards. The invoke → move-result → return triplet
+     * stays strict so a hook that does not directly dominate its return is still rejected.
      */
     private val PAIRED_HOOK_LENIENT = Regex(
         "aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+" +
-            "(?:[^\\n]*\\n){0,15}?[ \\t]*" +
+            "(?:[^\\n]*\\n){0,${LENIENT_WINDOW}}?[ \\t]*" +
             "invoke-static(?:/range)?\\s*\\{(?<target>[vp]\\d+)(?:\\s*\\.\\.\\s*\\k<target>)?\\},\\s*" +
             HOOK_PATTERN +
             DEBUG_GAP +
@@ -467,7 +475,9 @@ object KeyStoreSpiPatch {
      * scan backward from each `return-object` to the nearest `aput-object` into the same
      * register (following `move-object` hops), tolerating any instructions in between.
      * Stops at `.end method` and at another `return-object` so a match never spans a
-     * control-flow boundary.
+     * control-flow boundary. The window is generous (100 lines) because baksmali debug
+     * directives run ~3 lines per instruction: a loop-exit gap past the old 30-line bound
+     * silently emptied the scan on HOS A16 shapes.
      */
     private fun lenientFind(methodBody: String): List<HookPoint> {
         val lines = Smali.splitKeepEnds(methodBody)
@@ -478,13 +488,13 @@ object KeyStoreSpiPatch {
             off += lines[i].length
         }
         val aputRe = Regex("aput-object\\s+[vp]\\d+,\\s*([vp]\\d+),\\s*[vp]\\d+")
-        val moveRe = Regex("move-object(?:/from16)?\\s+([vp]\\d+),\\s*([vp]\\d+)")
+        val moveRe = Regex("move-object(?:/from16|/16)?\\s+([vp]\\d+),\\s*([vp]\\d+)")
         val points = mutableListOf<HookPoint>()
         for (i in lines.indices) {
             val retMatch = RETURN_OBJECT.find(lines[i]) ?: continue
             val retReg = retMatch.groupValues[1]
             var target = retReg
-            for (j in i - 1 downTo maxOf(0, i - 30)) {
+            for (j in i - 1 downTo maxOf(0, i - LENIENT_WINDOW)) {
                 val line = lines[j]
                 if (line.contains(".end method")) break
                 if (RETURN_OBJECT.containsMatchIn(line)) break
@@ -510,14 +520,43 @@ object KeyStoreSpiPatch {
 
     /**
      * Concise shape summary for the failure message: how many aput / return instructions
-     * the method carries and where they sit, so an unmatched ROM reports what it actually
-     * looks like instead of just "not found".
+     * the method carries, where they sit, and what feeds each return — so an unmatched
+     * ROM reports the neighbourhood the scan could not pair, not just that it failed.
+     * A ROM that routes the chain through a hop the scan cannot follow (e.g. a
+     * `move-result-object`) then shows that hop's lines right here, instead of costing
+     * another blind round trip.
      */
     private fun shapeDiagnostics(methodBody: String): String {
-        val aputs = Regex("aput-object\\s+[vp]\\d+,\\s*([vp]\\d+),\\s*[vp]\\d+")
-            .findAll(methodBody).map { it.groupValues[1] }.toList()
-        val returns = RETURN_OBJECT.findAll(methodBody)
-            .map { it.groupValues[1] }.toList()
-        return "aput=${aputs.size}(${aputs.joinToString(",")}) ret=${returns.size}(${returns.joinToString(",")})"
+        val lines = methodBody.split('\n')
+        val aputRe = Regex("aput-object\\s+[vp]\\d+,\\s*([vp]\\d+),\\s*[vp]\\d+")
+        val aputs = lines.withIndex().mapNotNull { (i, l) ->
+            aputRe.find(l)?.let { i to it.groupValues[1] }
+        }
+        val returns = lines.withIndex().mapNotNull { (i, l) ->
+            RETURN_OBJECT.find(l)?.let { i to it.groupValues[1] }
+        }
+        val summary = "aput=${aputs.size}(${aputs.joinToString(",") { it.second }})" +
+            " ret=${returns.size}(${returns.joinToString(",") { it.second }})"
+        // Six lines back from each return (nearest first) is where a dataflow hop would
+        // sit; two lines forward from each aput show what the array write is fed by.
+        val fed = returns.mapIndexed { n, (i, _) ->
+            val context = generateSequence(i - 1) { it - 1 }
+                .takeWhile { it >= 0 }
+                .mapNotNull { k -> lines[k].trim().takeIf { it.isNotEmpty() } }
+                .take(CONTEXT_LINES)
+                .toList()
+            "ret#$n@${i + 1}<-${context.joinToString(" | ") { it.truncate() }}"
+        }
+        val feeding = aputs.mapIndexed { n, (i, _) ->
+            val context = generateSequence(i + 1) { it + 1 }
+                .takeWhile { it in lines.indices }
+                .mapNotNull { k -> lines[k].trim().takeIf { it.isNotEmpty() } }
+                .take(APUT_CONTEXT_LINES)
+                .toList()
+            "aput#$n@${i + 1}>${context.joinToString(" | ") { it.truncate() }}"
+        }
+        return (listOf(summary) + fed + feeding).joinToString("; ")
     }
+
+    private fun String.truncate(): String = if (length > 160) take(160) + "…" else this
 }

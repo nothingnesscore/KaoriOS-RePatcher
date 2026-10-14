@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 148-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 154-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -131,10 +131,18 @@ itself: every Patch tap runs `ReleaseSync` after the pull/permission validations
 disassembly, listing the fork's releases and picking the **highest tag version that publishes a
 `classes.dex`** (`releases/latest` orders by created date and lies — v2.0.6.0's rebuild won
 "latest" over the newer v2.0.6.1), then downloading that release's `classes.dex` →
-`workspace/assets/kaorios.dex`. The manager APK is taken **only from the same release**; when
+`workspace/assets/kaorios.dex`. The listing key counts **all four** tag segments: v2.0.6.1 and
+v2.0.6.0 differ only in the fourth, and a three-segment key tied them so list/feed order decided
+— which is how a rebuild once won. The listing comes from `api.github.com` (60 unauthenticated
+requests an hour per IP, unreachable in some regions); when that path throws, `sync()` falls back
+to the public `releases.atom` feed on `github.com` for the tag and downloads from
+`releases/download`, never downgrading the workspace's recorded tag, so a blocked API costs one
+warn line (`resolved <tag> from the releases feed`) instead of a stale cache. The manager APK is
+taken **only from the same release**; when
 that release publishes no APK (v2.0.6.1 does not) a workspace APK tagged to a different release
 is deleted so the bundled signed copy wins instead of shadowing it, and the sync logs one line —
-`release sync <tag>: kaorios.dex=<n>B KaoriosToolbox.apk=<n>B` (or `toolbox=bundled`). The download fails closed (dex
+`release sync <tag>: kaorios.dex=<n>B [KaoriosToolbox.apk=<n>B]` (the APK appears only while
+the workspace holds one). The download fails closed (dex
 `dex\n` magic, APK `PK\x03\x04` + `APK Sig Block 42`, `.part` → rename), and a failed sync
 leaves the existing offline cache in place, so the run still works from whatever the assets
 already hold; a first run with neither network nor cache falls back to a manual drop, so:
@@ -280,7 +288,12 @@ transitions, each target as `PATCHED` / `ALREADY_PATCHED` / `UNSUPPORTED_LAYOUT`
 `NOT_TARGET` (guide §5's vocabulary), the runtime dex class count, the rebuilt dex list plus the
 host slot the runtime folded into, the release-sync summary
 (`release sync <tag>: kaorios.dex=…B KaoriosToolbox.apk=…B` — sync logs no `step ->` line of
-its own), the stock digests, and the module path/size/sha256. Flashing logs its `ksud` verdict. Watch a run live with:
+its own), the stock digests, and the module path/size/sha256. Flashing logs its `ksud` verdict.
+A keystore chain hook that cannot pair carries its shape in the `UNSUPPORTED_LAYOUT` message:
+the `aput=… ret=…` counts plus `ret#n@<line><- <nearest lines>` / `aput#n@<line>> <next lines>`
+neighbourhoods — the HOS A16 miss was diagnosed from that line alone, and the patch-time
+`lenientFind` window (100 lines) exists because baksmali debug directives run ~3 lines per
+instruction. Watch a run live with:
 
 ```bash
 adb logcat -s KaoriosPatcher
