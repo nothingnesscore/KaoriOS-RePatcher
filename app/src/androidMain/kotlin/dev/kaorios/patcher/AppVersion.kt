@@ -15,6 +15,10 @@ object AppVersion {
     val versionName: String
         get() = BuildConfig.VERSION_NAME
 
+    /** Monotonic version code, logged with each patch run alongside [versionName]. */
+    val code: Int
+        get() = BuildConfig.VERSION_CODE
+
     /** `beta.5` from `1.2.0-beta.5`, `stable.3` from `1.2.0` + versionCode 3. */
     val shortLabel: String
         get() = parseShortLabel(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)

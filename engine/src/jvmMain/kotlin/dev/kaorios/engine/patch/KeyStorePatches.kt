@@ -11,6 +11,67 @@ object KeyStoreGeneratorPatch {
     private const val ANCHOR = "generateKeyPair()Ljava/security/KeyPair;"
     private val DIRECTIVE = Regex("\\.(registers|locals)\\s+(\\d+)")
 
+    private const val ENTRY_FAILURE =
+        "generateKeyPair hook must be at entry with a dedicated local and stock fallback"
+
+    /**
+     * The entry sequence the verifier requires, anchored at the first real instruction
+     * (upstream's `re.match` over `body[entry:]`): hook, dedicated scratch, null check
+     * routed to the stock label, and the label itself. The invoke must be the narrow or
+     * the exact self-range form — the conditional in upstream's pattern spells both out.
+     */
+    private val GENERATOR_SEQUENCE = Regex(
+        "^\\s*(?:invoke-static/range\\s*\\{\\s*p0\\s*\\.\\.\\s*p0\\s*\\}|invoke-static\\s*\\{\\s*p0\\s*\\}),\\s*" +
+            Regex.escape(HOOK_SIGNATURE) + "\\s+" +
+            "move-result-object\\s+(?<scratch>v\\d+)\\s+" +
+            "if-eqz\\s+\\k<scratch>,\\s*(?<label>:[\\w$]+)\\s+" +
+            "return-object\\s+\\k<scratch>\\s+" +
+            "\\k<label>\\s*"
+    )
+
+    /**
+     * Offset of the first instruction after parameter, line and annotation metadata
+     * (port of upstream `_generator_entry_offset`): the hook must sit at the method's
+     * entry, so a `.param` block after the directive is skipped rather than injected
+     * into, and anything else directive-shaped at entry fails closed — a label there
+     * could jump past the hook entirely.
+     */
+    private fun generatorEntryOffset(methodBody: String, directiveEnd: Int): Int {
+        var offset = directiveEnd
+        var annotationDepth = 0
+        for (line in Smali.splitKeepEnds(methodBody.substring(directiveEnd))) {
+            val stripped = line.trim()
+            when {
+                stripped.startsWith(".annotation ") || stripped.startsWith(".subannotation ") ->
+                    annotationDepth++
+                stripped.startsWith(".end annotation") || stripped.startsWith(".end subannotation") ->
+                    annotationDepth--
+                annotationDepth == 0 && stripped.isNotEmpty() &&
+                    !stripped.startsWith("#") &&
+                    !stripped.startsWith(".param ") &&
+                    !stripped.startsWith(".end param") &&
+                    !stripped.startsWith(".line ") &&
+                    !stripped.startsWith(".local ") &&
+                    !stripped.startsWith(".end local") &&
+                    !stripped.startsWith(".restart local") &&
+                    !stripped.startsWith(".prologue") &&
+                    !stripped.startsWith(".epilogue") -> {
+                    if (stripped.startsWith(".")) {
+                        throw UnsupportedLayoutException("unsupported generateKeyPair metadata: $stripped")
+                    }
+                    if (stripped.startsWith(":")) {
+                        throw UnsupportedLayoutException(
+                            "unsupported generateKeyPair entry label: hook could be bypassed"
+                        )
+                    }
+                    return offset
+                }
+            }
+            offset += line.length
+        }
+        throw UnsupportedLayoutException("generateKeyPair stock instructions not found")
+    }
+
     fun patch(content: String): PatchOutcome {
         val start = content.indexOf(ANCHOR)
         if (start < 0) {
@@ -23,6 +84,7 @@ object KeyStoreGeneratorPatch {
 
         var methodBody = content.substring(start, end)
         if (methodBody.contains(HOOK_SIGNATURE)) {
+            verify(content)
             return PatchOutcome(PatchStatus.ALREADY_PATCHED, content)
         }
 
@@ -44,8 +106,10 @@ object KeyStoreGeneratorPatch {
             if (existingLocals < 1) {
                 // Zero locals: grow by one so there is a scratch slot. Params still fit
                 // (p0 moves to v1, well under v15), so the encoding gate stays green.
+                // The scratch is v0 — v(newCount-1) is p0, which the entry verifier
+                // requires to be distinct from the scratch (`registers - 2`).
                 newCount = oldCount + 1
-                vTarget = "v$oldCount"
+                vTarget = "v${oldCount - 1}"
                 p0Num = newCount - 1
             } else {
                 vTarget = "v${oldCount - 2}"
@@ -83,8 +147,14 @@ object KeyStoreGeneratorPatch {
             ?: throw UnsupportedLayoutException("register directive vanished")
         val directiveLine =
             if (newCount == oldCount) ".$directive $oldCount" else ".$directive $newCount"
-        val newBody = methodBody.substring(0, finalMatch.range.first) +
-            directiveLine + inject + methodBody.substring(finalMatch.range.last + 1)
+        // The hook lands after parameter/annotation metadata, not merely after the
+        // directive — upstream's `_generator_entry_offset` injects at the first real
+        // instruction so a `.param` block sits above the entry sequence, never between
+        // the directive and the hook.
+        val entry = generatorEntryOffset(methodBody, finalMatch.range.last + 1)
+        val newBody = methodBody.substring(0, finalMatch.range.first) + directiveLine +
+            methodBody.substring(finalMatch.range.last + 1, entry) +
+            inject + methodBody.substring(entry)
 
         return PatchOutcome(
             PatchStatus.PATCHED,
@@ -100,6 +170,30 @@ object KeyStoreGeneratorPatch {
             failVerification(
                 "AndroidKeyStoreKeyPairGeneratorSpi: expected exactly 1 initGenerateSoftwareKeyPair hook in generateKeyPair, found $count"
             )
+        }
+        val directive = DIRECTIVE.find(body)
+            ?: throw UnsupportedLayoutException("generateKeyPair register directive not found")
+        val registers = directive.groupValues[2].toInt() +
+            if (directive.groupValues[1] == "locals") 1 else 0
+        // The span excludes `.end method`, which the file-level scanner needs to pair a
+        // method; append a terminator so the encoding gate sees this method exactly as
+        // `PatchEngine` would (upstream runs `_verify_register_encoding` here too, which
+        // is what rejects an already-patched body with unencodable operands).
+        Smali.verifyRegisterEncoding(body + "\n.end method\n", "AndroidKeyStoreKeyPairGeneratorSpi.smali")
+        val entry = generatorEntryOffset(body, directive.range.last + 1)
+        val sequence = GENERATOR_SEQUENCE.find(body.substring(entry))
+            ?: failVerification(ENTRY_FAILURE)
+        val scratch = sequence.groups["scratch"]!!.value
+        if (scratch.substring(1).toInt() != registers - 2) {
+            failVerification(ENTRY_FAILURE)
+        }
+        val label = sequence.groups["label"]!!.value
+        if (Regex("(?m)^\\s*" + Regex.escape(label) + "\\s*$").findAll(body).count() != 1) {
+            failVerification("generateKeyPair stock fallback label is not unique")
+        }
+        val stock = body.substring(entry + sequence.range.last + 1)
+        if (!Regex("(?m)^\\s*(?:return-object|throw)\\b").containsMatchIn(stock)) {
+            throw UnsupportedLayoutException("unsupported generateKeyPair stock fallback: no exit")
         }
     }
 }
@@ -168,6 +262,12 @@ object KeyStoreSpiPatch {
     )
 
     private val RETURN_OBJECT = Regex("\\breturn-object\\s+([vp]\\d+)")
+
+    private val MOVE_RESULT_OBJECT = Regex("move-result-object\\s+([vp]\\d+)")
+
+    /** A static invoke with exactly one register — narrow or self-range form. */
+    private val SINGLE_STATIC_INVOKE =
+        Regex("invoke-static(?:/range)?\\s*\\{\\s*([vp]\\d+)(?:\\s*\\.\\.\\s*\\1)?\\s*\\}")
 
     /** The hook signature escaped for embedding in a pattern. */
     private const val HOOK_PATTERN =
@@ -453,7 +553,12 @@ object KeyStoreSpiPatch {
      */
     private val PAIRED_HOOK_LENIENT = Regex(
         "aput-object\\s+[vp]\\d+,\\s*(?<array>[vp]\\d+),\\s*[vp]\\d+" +
-            "(?:[^\\n]*\\n){0,${LENIENT_WINDOW}}?[ \\t]*" +
+            // The span may not cross another `aput-object` or `return-object`: on shapes
+            // like TrickyStore's the loop's earlier aput reaches the hook textually too,
+            // which would count the pair twice and fail `pairs == hookCount`. Patch-time
+            // `lenientFind` scans backward from the return and stops at the first aput,
+            // so excluding those lines makes the verifier mirror how the point was chosen.
+            "(?:(?!(?:[ \\t]*(?:aput-object|return-object)))[^\\n]*\\n){0,${LENIENT_WINDOW}}?[ \\t]*" +
             "invoke-static(?:/range)?\\s*\\{(?<target>[vp]\\d+)(?:\\s*\\.\\.\\s*\\k<target>)?\\},\\s*" +
             HOOK_PATTERN +
             DEBUG_GAP +
@@ -512,6 +617,32 @@ object KeyStoreSpiPatch {
                 val move = moveRe.find(line)
                 if (move != null && move.groupValues[1] == target) {
                     target = move.groupValues[2]
+                    continue
+                }
+                val result = MOVE_RESULT_OBJECT.find(line)
+                if (result != null && result.groupValues[1] == target) {
+                    // The value can arrive through a provider hook — TrickyStore's
+                    // `hackCertificateChainIfNeeded` sits between its `invoke` and
+                    // `move-result` — so hop back to the register the invoke was fed
+                    // with and keep scanning for the aput that produced it. Anything
+                    // else between them (or no single-register invoke at all) fails
+                    // closed: the provenance is unknown, so no hook point is claimed.
+                    var k = j - 1
+                    val windowStart = maxOf(0, i - LENIENT_WINDOW)
+                    while (k >= windowStart) {
+                        val prev = lines[k].trim()
+                        if (prev.isEmpty() || prev.startsWith("#") ||
+                            prev.startsWith(".line") || prev.startsWith(".local") ||
+                            prev.startsWith(".end local") || prev.startsWith(".restart local")
+                        ) {
+                            k--
+                            continue
+                        }
+                        break
+                    }
+                    val hop = if (k >= windowStart) SINGLE_STATIC_INVOKE.find(lines[k]) else null
+                    if (hop == null) break
+                    target = hop.groupValues[1]
                 }
             }
         }

@@ -344,7 +344,9 @@ class AospLayoutsTest {
         val patched = KeyStoreGeneratorPatch.patch(body)
         assertEquals(PatchStatus.PATCHED, patched.status)
         assertTrue(patched.content.contains(".registers 2"), "zero-local frame must grow by one")
-        assertContains(patched.content, "move-result-object v1")
+        // The scratch is v(newCount-2) = v0: v1 is p0 after the growth, so parking the
+        // hook result there would clobber the very register the hook is invoked with.
+        assertContains(patched.content, "move-result-object v0")
         KeyStoreGeneratorPatch.verify(patched.content)
     }
 }

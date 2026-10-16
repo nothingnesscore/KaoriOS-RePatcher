@@ -423,6 +423,12 @@ class PatchViewModel(
     fun patchAndBuild() {
         viewModelScope.launch {
             PatchLog.marker("patch run")
+            // Which build did this log come from — version, code and the guide revision
+            // the conformance table was read at, answerable from a pulled log alone.
+            PatchLog.info(
+                "patcher: ${AppVersion.versionName} [${AppVersion.shortLabel}] " +
+                    "code=${AppVersion.code} guide=${GuideCheck.REVISION}"
+            )
             _state.update { it.copy(step = PatchStep.Syncing, flash = FlashState.Idle) }
             val present = modulePaths.keys
                 .map { it to workspace.pulledFile(it) }

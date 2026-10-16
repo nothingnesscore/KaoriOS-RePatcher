@@ -6,6 +6,8 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -242,5 +244,120 @@ class PatchRegisterEncodingTest {
         assertEquals(PatchStatus.UNSUPPORTED_LAYOUT, outcome.status, outcome.error ?: "")
         assertEquals(fixture, outcome.content, "input must stay byte-identical")
         assertContains(outcome.error ?: "", "encoding limit v15")
+    }
+
+    @Test
+    fun crossingLocalParameterRangeIsRefusedByCanonicalization() {
+        for (end in listOf("v3", "p0")) {
+            val body = "    invoke-static/range {v2 .. $end}, Ljava/lang/Object;->wait(J)V\n"
+            val error = assertFailsWith<UnsupportedLayoutException> {
+                Smali.canonicalizeParamAliases(body, 4, 1)
+            }
+            assertContains(error.message ?: "", "crosses")
+        }
+        // Upstream refuses this body through its canonicalize-with-bump path; the engine's
+        // no-growth generator never shifts the frame, so the same layout still patches.
+        val stillPatches = applyKeystore(
+            generator("    invoke-static/range {v2 .. v3}, Ljava/lang/Object;->wait(J)V\n", registers = 4)
+        )
+        assertEquals(PatchStatus.PATCHED, stillPatches.status, stillPatches.error ?: "")
+    }
+
+    @Test
+    fun shiftedLit16OperandIsRefusedByTheGate() {
+        // Upstream's case runs the grown frame (16 → 17 pushes p0 onto v16); the no-growth
+        // generator never creates that shift, so the gate is pinned directly on a frame
+        // where the stock operand already addresses past v15.
+        val fixture = generator("    add-int/lit16 v0, p0, 0x1\n", registers = 17)
+        val error = assertFailsWith<UnsupportedLayoutException> {
+            Smali.verifyRegisterEncoding(fixture, "AndroidKeyStoreKeyPairGeneratorSpi.smali")
+        }
+        assertContains(error.message ?: "", "encoding limit v15")
+    }
+
+    @Test
+    fun branchLabelNamedLikeRegisterIsNotAnOperand() {
+        val fixture = generator("    if-eq v0, v1, :v255\n    :v255\n")
+        val outcome = applyKeystore(fixture)
+        assertEquals(PatchStatus.PATCHED, outcome.status, outcome.error ?: "")
+    }
+
+    @Test
+    fun preexistingGeneratorHookMustBeAtEntryWithStockFallback() {
+        val original = generator(
+            "    invoke-virtual/range {p0 .. p0}, Ljava/lang/Object;->toString()Ljava/lang/String;\n"
+        )
+        val patched = KeyStoreGeneratorPatch.patch(original)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        // The no-growth frame keeps p0 at v15, so the hook is the narrow form and its
+        // scratch is the top local v14 (upstream's grown frame pairs range + v15).
+        val invoke = "invoke-static {p0}"
+        val cases = listOf(
+            patched.content.replaceFirst(
+                "    $invoke", "    return-object v0\n    $invoke"
+            ),
+            patched.content.replaceFirst(
+                "    if-eqz v14, :cond_kaorios_gen_stock",
+                "    if-nez v14, :cond_kaorios_gen_stock"
+            ),
+            patched.content.replaceFirst(
+                "    :cond_kaorios_gen_stock", "    :missing_stock"
+            ),
+        )
+        for ((n, bad) in cases.withIndex()) {
+            assertNotEquals(patched.content, bad, "case $n must mutate the patch")
+            val outcome = applyKeystore(bad)
+            assertNotEquals(PatchStatus.PATCHED, outcome.status, "case $n")
+            assertNotEquals(PatchStatus.ALREADY_PATCHED, outcome.status, "case $n")
+            assertEquals(bad, outcome.content, "case $n must fail closed")
+            assertNotNull(outcome.error, "case $n must carry a diagnostic")
+        }
+    }
+
+    @Test
+    fun generatorEntryLabelFailsClosed() {
+        val fixture = generator("    :stock_entry\n    goto :stock_entry\n")
+        val outcome = applyKeystore(fixture)
+        assertEquals(PatchStatus.UNSUPPORTED_LAYOUT, outcome.status, outcome.error ?: "")
+        assertEquals(fixture, outcome.content, "input must stay byte-identical")
+        assertContains(outcome.error ?: "", "entry label")
+    }
+
+    @Test
+    fun generatorCommentIsNotAStockFallbackExit() {
+        val fixture = generator("")
+        val patched = KeyStoreGeneratorPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        val bad = patched.content.replace(
+            "    return-object v0\n.end method",
+            "    # return-object v0\n.end method"
+        )
+        assertNotEquals(patched.content, bad, "the stock exit must actually be commented out")
+        val outcome = applyKeystore(bad)
+        assertEquals(PatchStatus.UNSUPPORTED_LAYOUT, outcome.status, outcome.error ?: "")
+        assertEquals(bad, outcome.content, "input must stay byte-identical")
+        assertContains(outcome.error ?: "", "fallback")
+    }
+
+    @Test
+    fun generatorInjectionFollowsParameterMetadata() {
+        val fixture = generator(
+            "    .param p0, \"this\"    # Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;\n" +
+                "        .annotation runtime Ljava/lang/Deprecated;\n" +
+                "        .end annotation\n" +
+                "    .end param\n" +
+                "    .line 42\n"
+        )
+        val patched = KeyStoreGeneratorPatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        assertTrue(
+            patched.content.indexOf("    .end param") <
+                patched.content.indexOf(KeyStoreGeneratorPatch.HOOK_SIGNATURE),
+            "the hook must be injected after the parameter metadata, not between it and the directive"
+        )
+        val again = KeyStoreGeneratorPatch.patch(patched.content)
+        assertEquals(PatchStatus.ALREADY_PATCHED, again.status, again.error ?: "")
+        assertEquals(patched.content, again.content, "second pass must be byte-identical")
+        KeyStoreGeneratorPatch.verify(patched.content)
     }
 }

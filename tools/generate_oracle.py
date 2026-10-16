@@ -112,6 +112,10 @@ SKIP_FIXTURES = {
     "aosp15_reconcile_package_utils",
     "aosp15_androidkeystorespi",
     "aosp15_computer_engine",
+    # TrickyStore's AndroidKeyStoreSpi carries hackCertificateChainIfNeeded between
+    # the leaf aput and its move-result; the engine's lenient pairing extends past
+    # the reference (which refuses this shape) and is pinned by TrickyStoreKeystoreTest.
+    "trickystore_androidkeystorespi",
 }
 
 oracle = {}

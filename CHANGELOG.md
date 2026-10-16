@@ -7,6 +7,35 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.14] - 2026-10-16
+
+- **Fix — TrickyStore keystore chains patch again (A17 report):** TrickyStore's
+  `hackCertificateChainIfNeeded` sits between the leaf `aput-object` and the `move-result`
+  of the provider invoke, so neither the strict pairing nor the previous lenient scan could
+  see the return's producer and the run died with `UNSUPPORTED_LAYOUT`. The backward scan
+  now follows the `move-result` back to the provider invoke's input register and pairs the
+  `aput` that fed it, and the verifier mirrors the same rule — a pairing span never crosses
+  another `aput-object` or `return-object`, so the loop's earlier `aput` cannot re-count the
+  same hook (which would have failed `pairs == hookCount` on exactly the shape this fixes).
+  The TrickyStore provider hook itself is never touched.
+- **Fix — zero-local generator frames no longer clobber `p0`:** growing `.registers 1` by
+  one parked the hook result in `v1`, which *is* `p0` after the growth — the very register
+  the hook is invoked with. The scratch is now `v(newCount-2)` (`v0`), and the verifier
+  requires it to stay the top local (`registers - 2`).
+- **Port — upstream hardening `2bdca9a` → `f8d87de`:** canonicalise refuses `/range`
+  operands that cross the local/parameter boundary instead of silently renaming across it;
+  the register-encoding gate learns `rsub-int` and the five `/lit16` two-address forms and
+  strips branch labels (a `:v255` label is not an operand); the generator verifier anchors
+  the hook at the method's real entry (skipping `.param`/annotation/`.line` metadata —
+  a directive-shaped line or a label at entry fails closed) and re-runs the encoding gate;
+  Build spoof's second substitution now also rewrites a non-final initialized stock field,
+  and its verifier requires the null initializer; every patch target checks the file's
+  `.class` descriptor against the expected owner before patching, so a renamed or foreign
+  file fails closed instead of matching on content alone.
+- **Change — the patch run logs its own identity:** the first `KaoriosPatcher` line after
+  `patch run` is now `patcher: <version> [label] code=<n> guide=<revision>`, so a tester
+  log always names the build that produced it.
+
 ## [v1.2.0-beta.13] - 2026-10-14
 
 - **Fix — release sync can no longer settle on a stale dex (A16 report):** the version key

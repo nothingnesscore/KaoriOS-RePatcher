@@ -266,6 +266,26 @@ object PatchEngine {
     fun disassemblyFiles(mode: PatchMode): Set<String> = disassemblyFiles(PatchSelection.of(mode))
 
     /**
+     * The class each of the nine reference-owned files must declare (port of upstream's
+     * `owners` table): a file name that matches a target but carries a different class
+     * would otherwise be patched blind — the reference refuses it, and so do we. Files
+     * outside the table (CorePatch, DSV, App/ADB Hide) have no owner constraint.
+     */
+    private val OWNERS = mapOf(
+        "ActivityThread.smali" to "Landroid/app/ActivityThread;",
+        "ComputerEngine.smali" to "Lcom/android/server/pm/ComputerEngine;",
+        "SystemServer.smali" to "Lcom/android/server/SystemServer;",
+        "AndroidKeyStoreKeyPairGeneratorSpi.smali" to "Landroid/security/keystore2/AndroidKeyStoreKeyPairGeneratorSpi;",
+        "AndroidKeyStoreSpi.smali" to "Landroid/security/keystore2/AndroidKeyStoreSpi;",
+        "Instrumentation.smali" to "Landroid/app/Instrumentation;",
+        "ApplicationPackageManager.smali" to "Landroid/app/ApplicationPackageManager;",
+        "Build.smali" to "Landroid/os/Build;",
+        "Build\$VERSION.smali" to "Landroid/os/Build\$VERSION;",
+    )
+
+    private val CLASS_DESCRIPTOR = Regex("(?m)^\\.class\\s+[^\\n]*?\\s+(L[^\\s;]+;)[ \\t]*$")
+
+    /**
      * Applies [mode] to [fileName]'s [content].
      *
      * Fails closed: the returned text is only modified when the target's own
@@ -273,6 +293,15 @@ object PatchEngine {
      */
     fun applyTargetPatch(fileName: String, content: String, targets: Map<String, PatchTarget>): PatchOutcome {
         val target = targets[fileName] ?: return PatchOutcome(PatchStatus.NOT_TARGET, content)
+        val owner = OWNERS[fileName]
+        if (owner != null) {
+            val declarations = CLASS_DESCRIPTOR.findAll(content).map { it.groupValues[1] }.toList()
+            if (declarations != listOf(owner)) {
+                return PatchOutcome(
+                    PatchStatus.UNSUPPORTED_LAYOUT, content, "$fileName: expected class descriptor $owner"
+                )
+            }
+        }
         return try {
             val result = target.patch(content)
             // A guide-skippable site that the ROM simply does not carry comes back byte-identical.

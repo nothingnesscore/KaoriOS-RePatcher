@@ -122,6 +122,25 @@ object Smali {
                 "unsupported register allocation: .registers $registers covers $paramCount parameters"
             )
         }
+        // A range spanning the local/parameter boundary would gain a register after the bump.
+        // Upstream `_canonicalize_param_aliases` refuses it outright; every caller here passes
+        // the pre-bump frame, so the same check fires at the same point.
+        val crossingRange = Regex("\\{\\s*v(\\d+)\\s*\\.\\.\\s*([vp]\\d+)\\s*\\}")
+        for (line in splitLines(methodBody)) {
+            val instruction = LITERAL_STRIP.replace(line, "").trim()
+            if ("/range" !in instruction) continue
+            for (range in crossingRange.findAll(instruction)) {
+                val start = range.groupValues[1].toInt()
+                val end = range.groupValues[2]
+                if (start < firstParamV &&
+                    (end.startsWith("p") || end.substring(1).toInt() >= firstParamV)
+                ) {
+                    throw UnsupportedLayoutException(
+                        "unsupported register shift: /range crosses local/parameter boundary"
+                    )
+                }
+            }
+        }
         var body = methodBody
         for (n in 0 until paramCount) {
             val vName = firstParamV + n
@@ -185,8 +204,11 @@ object Smali {
             if (instruction.isEmpty() || instruction.startsWith(".") || instruction.startsWith(":")) continue
             val opcode = instruction.split(WHITESPACE).first()
             val typeCut = TYPE_ATOM.find(instruction, opcode.length)
-            val operands = if (typeCut != null) instruction.substring(0, typeCut.range.first) else instruction
-            val names = OPERAND_REGISTER.findAll(operands).toList()
+            val operands = (if (typeCut != null) instruction.substring(0, typeCut.range.first) else instruction)
+            // A branch label like `:v255` is an operand-shaped atom, not a register: strip
+            // it (upstream does the same after its descriptor split) or the gate refuses a
+            // perfectly encodable `if-eq v0, v1, :v255`.
+            val names = OPERAND_REGISTER.findAll(LABEL_ATOM.replace(operands, "")).toList()
             val narrow = opcode in NARROW_OPCODES ||
                 opcode.startsWith("iget") || opcode.startsWith("iput") ||
                 opcode.startsWith("neg-") || opcode.startsWith("not-") ||
@@ -232,9 +254,13 @@ object Smali {
      */
     private val TYPE_ATOM = Regex("(?:,\\s*|\\s)[\\[L]")
 
+    /** A branch label (`:v255`, `:cond_3`) in operand position — never a register. */
+    private val LABEL_ATOM = Regex("(?<!\\w):[\\w$]+")
+
     private val NARROW_OPCODES = setOf(
-        "move", "move-wide", "move-object", "const/4", "array-length", "new-array",
-        "instance-of", "if-eq", "if-ne", "if-lt", "if-ge", "if-gt", "if-le",
+        "move", "move-wide", "move-object", "const/4", "array-length", "rsub-int",
+        "add-int/lit16", "and-int/lit16", "or-int/lit16", "xor-int/lit16",
+        "new-array", "instance-of", "if-eq", "if-ne", "if-lt", "if-ge", "if-gt", "if-le",
     )
 
     /**

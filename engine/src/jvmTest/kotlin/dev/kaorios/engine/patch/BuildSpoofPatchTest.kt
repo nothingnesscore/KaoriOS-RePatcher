@@ -6,6 +6,8 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 
 /**
  * Port of upstream `script/test_patcher_register_encoding.py::BuildFieldTest` (2bdca9a):
@@ -41,15 +43,48 @@ class BuildSpoofPatchTest {
 
     @Test
     fun `a malformed double initializer does not pass as already patched`() {
-        // Mirrors upstream's regression on its minimal fixture: patching such text is a
-        // no-op (no `final` left), so verification is what stands between it and an
-        // ALREADY_PATCHED verdict — it fails on a stock field the fixture never declared.
-        // On a complete Build.smali the protection is the emit fix itself: malformed
-        // text can no longer be produced in the first place.
+        // Upstream's regression on its minimal fixture: the second substitution now
+        // *repairs* the damaged line, so the patch no longer reports ALREADY_PATCHED —
+        // verification is what refuses the result (the minimal fixture never declared
+        // DEVICE, and the direct check names the repair the initializer rule requires).
         val patched = BuildSpoofPatch.patchBuild(original).content
         val bad = patched.replace("= null", "= null = \"OEM\"")
-        assertEquals(PatchStatus.ALREADY_PATCHED, BuildSpoofPatch.patchBuild(bad).status)
+        val target = PatchTarget("Build.smali", BuildSpoofPatch::patchBuild, BuildSpoofPatch::verifyBuild)
+        val outcome = PatchEngine.applyTargetPatch(target.fileName, bad, mapOf(target.fileName to target))
+        assertNotEquals(PatchStatus.ALREADY_PATCHED, outcome.status)
+        assertNotNull(outcome.error)
         val e = assertFailsWith<PatchVerificationException> { BuildSpoofPatch.verifyBuild(bad) }
-        assertContains(e.message.orEmpty(), "not found")
+        assertContains(e.message.orEmpty(), "must have a null initializer")
+    }
+
+    private fun buildFixture(classLine: String, style: (String) -> String): String = buildString {
+        appendLine(classLine)
+        listOf("BRAND", "DEVICE", "FINGERPRINT", "HARDWARE", "ID", "MANUFACTURER", "MODEL", "PRODUCT", "TAGS", "TYPE", "USER")
+            .forEach { appendLine(".field public static $it:Ljava/lang/String; ${style(it)}") }
+        appendLine(".field public static TIME:J")
+    }
+
+    @Test
+    fun `a matching filename with the wrong class is rejected`() {
+        val fixture = buildFixture(".class public Lexample/NotBuild;") { " = \"OEM\"" }
+        val target = PatchTarget("Build.smali", BuildSpoofPatch::patchBuild, BuildSpoofPatch::verifyBuild)
+        val outcome = PatchEngine.applyTargetPatch(target.fileName, fixture, mapOf(target.fileName to target))
+        assertEquals(PatchStatus.UNSUPPORTED_LAYOUT, outcome.status, outcome.error ?: "")
+        assertEquals(fixture, outcome.content, "input must stay byte-identical")
+        assertContains(outcome.error.orEmpty(), "class descriptor")
+    }
+
+    @Test
+    fun `a non-final initialized field is not already patched`() {
+        val fixture = buildFixture(".class public Landroid/os/Build;") { " = \"OEM\"" }
+        val target = PatchTarget("Build.smali", BuildSpoofPatch::patchBuild, BuildSpoofPatch::verifyBuild)
+        val outcome = PatchEngine.applyTargetPatch(target.fileName, fixture, mapOf(target.fileName to target))
+        assertEquals(PatchStatus.PATCHED, outcome.status, outcome.error ?: "")
+        assertContains(outcome.content, ".field public static BRAND:Ljava/lang/String; = null")
+        assertEquals(
+            PatchStatus.ALREADY_PATCHED,
+            BuildSpoofPatch.patchBuild(outcome.content).status
+        )
+        BuildSpoofPatch.verifyBuild(outcome.content) // must not throw
     }
 }

@@ -30,11 +30,19 @@ object BuildSpoofPatch {
         Regex("(\\.field public static[^\\n]*?)final([^\\n]*? ${Regex.escape(field)}:$type)")
             .replace(text) { m -> m.groups[1]!!.value + m.groups[2]!!.value }
 
-    private fun nullifyString(text: String, field: String): String =
-        Regex(
+    private fun nullifyString(text: String, field: String): String {
+        // Drop `final` and absorb any existing initializer, then normalise whatever is
+        // left: a non-final initialized field (`… BRAND:Ljava/lang/String; = "OEM"`)
+        // would otherwise keep its stock value — upstream's second substitution landed
+        // in the same v2.0.6.1 hardening pass.
+        val withFinal = Regex(
             "(\\.field public static[^\\n]*?)final([^\\n]*? ${Regex.escape(field)}:Ljava/lang/String;)" +
                 "(?:[ \\t]*=[^\\r\\n]*)?"
         ).replace(text) { m -> m.groups[1]!!.value + m.groups[2]!!.value + " = null" }
+        return Regex(
+            "(\\.field public static[^\\n]*? ${Regex.escape(field)}:Ljava/lang/String;)[ \\t]*=[^\\r\\n]*"
+        ).replace(withFinal) { m -> m.groups[1]!!.value + " = null" }
+    }
 
     fun patchBuild(content: String): PatchOutcome {
         val anchor = NULL_STRING_FIELDS.first()
@@ -81,6 +89,12 @@ object BuildSpoofPatch {
             }
             if (match.value.contains("final")) {
                 failVerification("Build.smali post-patch: field $field still has 'final' modifier - patch did not apply")
+            }
+            val after = content.substring(match.range.last + 1)
+            val lineEnd = after.indexOf('\n').let { if (it < 0) content.length else match.range.last + 1 + it }
+            val initializer = content.substring(match.range.last + 1, lineEnd)
+            if (initializer.trim() !in listOf("", "= null")) {
+                failVerification("Build.smali post-patch: field $field must have a null initializer")
             }
         }
         val time = Regex("\\.field public static[^\\n]* TIME:J").find(content)
