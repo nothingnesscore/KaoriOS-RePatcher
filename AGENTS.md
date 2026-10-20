@@ -138,8 +138,11 @@ requests an hour per IP, unreachable in some regions); when that path throws, `s
 to the public `releases.atom` feed on `github.com` for the tag and downloads from
 `releases/download`, never downgrading the workspace's recorded tag, so a blocked API costs one
 warn line (`resolved <tag> from the releases feed`) instead of a stale cache. The manager APK is
-taken **only from the same release**; when
-that release publishes no APK (v2.0.6.1 does not) a workspace APK tagged to a different release
+taken **only from the same release** — the first `.apk` whose name contains `toolbox`, else the
+first `.apk` (v2.0.6.1 began publishing `kaoriostoolbox-release_sign.apk` on 2026-10-18, after
+this rule was written; the bundled resource was refreshed to those bytes at beta.15) — always
+stored under the stable workspace name `KaoriosToolbox.apk`. When the chosen release publishes
+no APK at all, a workspace APK tagged to a different release
 is deleted so the bundled signed copy wins instead of shadowing it, and the sync logs one line —
 `release sync <tag>: kaorios.dex=<n>B [KaoriosToolbox.apk=<n>B]` (the APK appears only while
 the workspace holds one). The download fails closed (dex
@@ -303,9 +306,10 @@ adb logcat -s KaoriosPatcher
 `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1.md` (`framework.jar` §2-§6, `services.jar` §1-§3 and
 `Optional patches` §1-§2), `Disable_Secure_Flag.md`, and `CorePatch.md` §1-§3 — keyed by
 `GuideCheck.REVISION`, which names the upstream commit all three were read at (adding a table
-does not move it; re-reading the guides at a new commit does; it is `2bdca9a` — re-read after the
-2bdca9a guide rewrite, target inventory unchanged, no new patch targets; beta.10/11 shipped on
-`c645e64`). It
+does not move it; re-reading the guides at a new commit does; it is `b045356` — re-read at the
+parity-audit head, target inventory unchanged: the guides gained a SettingsProvider bootloop
+warning and a payload-boundary note, both already true of this build; beta.10/11 shipped on
+`c645e64`, beta.12–14 on `2bdca9a`). It
 reports each expected file `ok` / `MISSING` / `REJECTED`, plus `absent` for the three sites the
 guides themselves let a ROM skip, and names the entries deliberately out of scope —
 `SettingsProvider.smali` (retired upstream at `8c752fd`; the guide says keep the stock
@@ -435,6 +439,11 @@ mismatch, independent of the tree filter.
   entries carry **package keys only** (`{}`) — identity comes from the active PIF
   (`Pif-props.json` / the Toolbox's working PIF), which is why hardcoding a device identity
   into app-props is wrong (the runtime applies the working PIF value to the listed packages).
+  The JSONs track upstream `Toolbox-data/`: `Pif-props.json` was re-synced byte-for-byte to
+  `b045356` at beta.15 (it had been frozen on the initial-ship Pixel 6 identity while upstream
+  repinned through Pixel 7 stable to the Kow bot daily preset — re-sync whenever upstream moves,
+  a stale fingerprint is exactly what Play Integrity starts rejecting), `device-model.json`
+  equals upstream, and `app-props.json` is upstream plus this repo's Indian UPI keys (all `{}`).
 - **A run that produced no KaoriOS runtime is a failure, not a partial success.** The module looks
   identical either way and the difference only shows up as a boot loop, so `patchAndBuild` bails
   rather than writing a zip whose injected call sites cannot resolve.
@@ -516,6 +525,17 @@ Python reference is still pinned by `OracleParityTest`.
 
 **The `FULL` module has never been flashed.** `local-work/run20/module/kaorios_patcher.zip` is
 the current SAFE-TO-FLASH artifact (run19 was the previous one).
+
+- **Upstream's parity audit (`DECISIONS.md` at `b045356`) records two deliberate asymmetries.**
+  Their patcher fails closed on a foreign hook chain (the EVOX / NTFramework / TrickyStore shape:
+  leaf `aput` → provider `invoke` → `move-result` → `return-object`), leaving both keystore
+  hooks unpatched and telling users to restore stock smali first; our engine pairs that shape on
+  purpose (beta.13/14, pinned by `TrickyStoreKeystoreTest`) — the divergence is now documented
+  on both sides. The same audit flags two verifier gaps it leaves for later work —
+  `engineGetCertificate` delegation detected by text search anywhere in the method (an
+  unreachable frame after a stock return passes as patched) and SystemServer verification
+  checking only textual order before `Looper.loop()` — treat a future upstream tightening as
+  port work rather than changing ours independently.
 
 ### Hide App List — root cause and the `AppsFilterBase` target
 

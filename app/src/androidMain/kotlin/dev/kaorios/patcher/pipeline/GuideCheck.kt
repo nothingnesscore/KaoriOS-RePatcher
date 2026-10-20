@@ -23,10 +23,12 @@ object GuideCheck {
 
     /**
      * Upstream revision this table was re-read at; bump it whenever the guide is re-read.
-     * Re-read at 2bdca9a after the guide rewrite — target inventory unchanged, only the
-     * surrounding procedure was restructured.
+     * Re-read at b045356 (the parity-audit head) — target inventory unchanged; the guides
+     * gained a SettingsProvider bootloop warning (we never patch the provider) and a
+     * payload-boundary note (we never install a Phenotype caller), plus checksum text for
+     * the current release dex/zip.
      */
-    const val REVISION = "2bdca9a"
+    const val REVISION = "b045356"
 
     /** Guide `framework.jar` §2-§6, in guide order. §1 is the payload import, not a smali target. */
     private val FRAMEWORK_HOOKS = listOf(
