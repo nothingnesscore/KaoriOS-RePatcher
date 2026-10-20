@@ -7,6 +7,32 @@ release. Write a release's section at ship time, in the same step that bumps
 `gradle.properties` — the beta workflow refuses to publish when the newest section does not
 belong to the version line being released — and leave released sections alone.
 
+## [v1.2.0-beta.15] - 2026-10-20
+
+- **Fix — PIF identity bundle tracks upstream again:** the embedded `Pif-props.json` was
+  frozen on the initial-ship Pixel 6 identity (`oriole_beta`, 2026-07-05 patch) while
+  upstream `Toolbox-data/Pif-props.json` moved on; it is now re-synced byte-for-byte to
+  `b045356` — Pixel 7 Pro (`cheetah_beta`, the pinned Kow bot daily preset, 2026-10-05
+  patch) — so a fresh flash and `action.sh pif` stop presenting a stale fingerprint to
+  Play Integrity. `app-props.json` (upstream plus the Indian UPI keys) and
+  `device-model.json` were re-compared against the same revision and needed no change.
+- **Change — bundled Toolbox APK refreshed to the published release asset:** the offline
+  fallback resource is now the exact bytes of `kaoriostoolbox-release_sign.apk`
+  (published on v2.0.6.1 on 2026-10-18, 11,485,069 B, SHA-256 `b6d7a83f…`, v2 signing
+  block verified), replacing the 2026-10-12 build. Release sync downloads the same asset
+  when online — the first `.apk` on the dex's release whose name contains `toolbox` —
+  so the bundled copy only wins when sync fails.
+- **Change — guide conformance re-read at `b045356`:** `GuideCheck.REVISION` moves
+  `2bdca9a` → `b045356`. Target inventory is unchanged; the guides gained a
+  SettingsProvider bootloop warning (this build never patches the provider) and a
+  payload-boundary note (no Phenotype caller is ever installed), both already true. The
+  v2.0.6.1 assets were re-verified end to end — dex `d35d5f74…` / 578,492 B and the
+  patcher zip `58ed595b…` / 166,739 B whose 22 scripts are byte-identical to the
+  reference tree (CRLF aside) — and both sync flows handle the current release without
+  code changes. The upstream parity audit of `b045356` is recorded in `AGENTS.md`: their
+  patcher refuses the TrickyStore/foreign-hook chain our engine deliberately pairs, and
+  their two flagged verifier gaps are queued as upstream-follow-up port work.
+
 ## [v1.2.0-beta.14] - 2026-10-16
 
 - **Fix — TrickyStore keystore chains patch again (A17 report):** TrickyStore's
