@@ -100,6 +100,16 @@ properties (CI: secrets `RELEASE_KEYSTORE_B64`, `RELEASE_KEYSTORE_PASSWORD`,
 as the local fallback. CI finds the SDK through `ANDROID_HOME`/`ANDROID_SDK_ROOT`
 (`settings.gradle.kts`) and installs `platforms;android-37.0` + `build-tools;37.0.0`.
 
+Both workflows end with a Telegram announcement (`.github/scripts/telegram-release.sh`,
+a step after `gh release create`): the release notes as a chat message (headings
+flattened, no parse_mode; cut at Telegram's 4096-char limit with the full notes attached
+as a document when truncated) and the APK as a document carrying its SHA-256 in the
+caption. It needs two repository secrets — `TELEGRAM_BOT_TOKEN` (from @BotFather) and
+`TELEGRAM_CHAT_ID` (channel, group or user id; for a channel the bot must be an admin) —
+and skips with a notice when either is absent, so an unconfigured repo or a fork never
+fails a release over chat plumbing. The Bot API caps uploads at 50 MB; an APK outgrowing
+that would need an MTProto client instead.
+
 ## Architecture
 
 ```

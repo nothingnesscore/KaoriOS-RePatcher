@@ -140,3 +140,12 @@ jobs:
             --title "Kaorios RePatcher ${BASE}" \
             --notes-file notes.md \
             "Kaorios-RePatcher-${BASE}.apk"
+
+      - name: Announce on Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_CHANNEL: stable
+          RELEASE_NOTES: notes.md
+        run: bash .github/scripts/telegram-release.sh
