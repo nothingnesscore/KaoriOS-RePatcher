@@ -1,0 +1,44 @@
+name: Announce release on Telegram
+
+# Re-send the Telegram announcement for an already-published release — for when the
+# announce step of beta.yml/stable.yml failed after `gh release create` succeeded, or a
+# channel message needs reposting. Needs the same two secrets the release workflows use:
+# TELEGRAM_BOT_TOKEN (@BotFather) and TELEGRAM_CHAT_ID.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the leading v (e.g. 1.2.0-beta.16)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Fetch release APK and notes
+        run: |
+          gh release download "v${VERSION}" --pattern 'Kaorios-RePatcher-*.apk'
+          gh release view "v${VERSION}" --json body --jq .body > notes.md
+          case "$VERSION" in
+            *-beta.*) CHANNEL=beta ;;
+            *)        CHANNEL=stable ;;
+          esac
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+          echo "RELEASE_NOTES=notes.md" >> "$GITHUB_ENV"
+
+      - name: Announce on Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: bash .github/scripts/telegram-release.sh

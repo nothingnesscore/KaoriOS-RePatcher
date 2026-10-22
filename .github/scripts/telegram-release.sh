@@ -30,10 +30,13 @@ APK="Kaorios-RePatcher-${RELEASE_VERSION}.apk"
 send() {
   # --fail-with-body: a Telegram 4xx carries the reason in the JSON body; print it
   # instead of a bare curl exit code. Three retries smooth over rate limits.
+  # Deliberately NOT -fsS: -f and --fail-with-body are mutually exclusive
+  # (curl/curl#9221) and the runner's newer curl rejects the pair with
+  # "option --fail-with-body: is badly used here".
   local endpoint=$1
   shift
   local resp
-  if ! resp=$(curl -fsS --fail-with-body --retry 3 --retry-delay 3 \
+  if ! resp=$(curl -sS --fail-with-body --retry 3 --retry-delay 3 \
       -X POST "${API}/${endpoint}" "$@"); then
     echo "${endpoint} failed:" >&2
     echo "${resp}" >&2
