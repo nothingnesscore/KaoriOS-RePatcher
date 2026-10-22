@@ -1,5 +1,6 @@
 package dev.kaorios.engine.patch
 
+import dev.kaorios.engine.smali.PatchVerificationException
 import dev.kaorios.engine.smali.Smali
 import dev.kaorios.engine.smali.UnsupportedLayoutException
 import kotlin.test.Test
@@ -359,5 +360,76 @@ class PatchRegisterEncodingTest {
         assertEquals(PatchStatus.ALREADY_PATCHED, again.status, again.error ?: "")
         assertEquals(patched.content, again.content, "second pass must be byte-identical")
         KeyStoreGeneratorPatch.verify(patched.content)
+    }
+
+    @Test
+    fun debugDirectiveBetweenHookReturnAndStockFallbackIsAccepted() {
+        val original = generator(
+            "    invoke-virtual/range {p0 .. p0}, Ljava/lang/Object;->toString()Ljava/lang/String;\n"
+        )
+        val patched = KeyStoreGeneratorPatch.patch(original)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        // Port of upstream test_debug_directive_between_hook_return_and_stock_fallback_is_accepted
+        // (9a50d37): baksmali floats `.line` above the stock label on re-disassembly. The
+        // no-growth frame parks the hook's scratch at v14 (v15 is p0), where the reference's
+        // grown frame pairs range invoke + v15.
+        val withDebug = patched.content.replaceFirst(
+            "    return-object v14\n\n    :cond_kaorios_gen_stock",
+            "    return-object v14\n    .line 783\n\n    :cond_kaorios_gen_stock",
+        )
+        assertNotEquals(patched.content, withDebug, "the fixture must actually gain the directive")
+        KeyStoreGeneratorPatch.verify(withDebug)
+        val outcome = applyKeystore(withDebug)
+        assertEquals(PatchStatus.ALREADY_PATCHED, outcome.status, outcome.error ?: "")
+        assertEquals(withDebug, outcome.content, "an accepted input must stay byte-identical")
+    }
+
+    @Test
+    fun prepatchedHookBypassedByGotoIsRejected() {
+        // Port of upstream ServicesParameterEncodingTest.test_prepatched_hook_bypassed_by_goto_is_rejected
+        // (9a50d37): a `goto` ahead of the hook routes every caller past the null checks.
+        val fixture = computerEngine("", ".locals 8", full = false)
+        val patched = ComputerEnginePatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        val label = ComputerEnginePatch.RESERVED_LABEL
+        val bypassed = patched.content.replaceFirst(
+            "    if-eqz p1, $label",
+            "    goto $label\n    if-eqz p1, $label",
+        )
+        assertNotEquals(patched.content, bypassed, "the fixture must actually gain the branch")
+        val e = assertFailsWith<PatchVerificationException> { ComputerEnginePatch.verify(bypassed) }
+        assertContains(e.message.orEmpty(), "bypassed by a branch")
+    }
+
+    @Test
+    fun prepatchedHookBypassedByConditionalBranchIsRejected() {
+        // The conditional twin: `if-nez` skips the hook for one caller shape and still
+        // leaves two `if-eqz` guards in place, so only the branch identity check catches it.
+        val fixture = computerEngine("", ".locals 8", full = false)
+        val patched = ComputerEnginePatch.patch(fixture)
+        assertEquals(PatchStatus.PATCHED, patched.status, patched.error ?: "")
+        val label = ComputerEnginePatch.RESERVED_LABEL
+        val bypassed = patched.content.replaceFirst(
+            "    if-eqz p1, $label",
+            "    if-nez p2, $label\n    if-eqz p1, $label",
+        )
+        assertNotEquals(patched.content, bypassed, "the fixture must actually gain the branch")
+        val e = assertFailsWith<PatchVerificationException> { ComputerEnginePatch.verify(bypassed) }
+        assertContains(e.message.orEmpty(), "bypassed by a branch")
+    }
+
+    @Test
+    fun commentOnlyVisibilityHookIsNotAlreadyPatched() {
+        // Port of upstream ServicesParameterEncodingTest.test_comment_only_hook_is_not_already_patched
+        // (9a50d37): comment text suppresses neither the patch nor the verifier.
+        val fixture = computerEngine("", ".locals 8", full = false)
+        val commented = fixture.replaceFirst(
+            "    const/4 v0, 0x0\n",
+            "    # invoke-static {p2, v1, p3}, ${ComputerEnginePatch.HOOK_TARGET}\n    const/4 v0, 0x0\n",
+        )
+        assertNotEquals(fixture, commented, "the fixture must actually gain the comment")
+        val outcome = ComputerEnginePatch.patch(commented)
+        assertEquals(PatchStatus.PATCHED, outcome.status, outcome.error ?: "")
+        ComputerEnginePatch.verify(outcome.content)
     }
 }

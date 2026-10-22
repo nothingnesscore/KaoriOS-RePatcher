@@ -21,6 +21,12 @@ object SystemServerPatch {
     private val ANCHOR_LINE =
         Regex("(?m)^(?<indent>[ \\t]*)" + Regex.escape(ANCHOR_CALL) + "[ \\t]*(?:\\r?\\n|$)")
 
+    /** Executable hook / anchor lines — line-anchored, comment text never counts (upstream `EXECUTABLE_*_RE`). */
+    private val EXECUTABLE_HOOK =
+        Regex("(?m)^[ \\t]*" + Regex.escape(HOOK_CALL) + "[ \\t]*(?:#.*)?$")
+    private val EXECUTABLE_ANCHOR =
+        Regex("(?m)^[ \\t]*" + Regex.escape(ANCHOR_CALL) + "[ \\t]*(?:#.*)?$")
+
     private fun methodSpan(text: String): Span {
         if (!CLASS_RE.containsMatchIn(text)) {
             throw UnsupportedLayoutException("expected .class Lcom/android/server/SystemServer;")
@@ -39,23 +45,19 @@ object SystemServerPatch {
         val span = methodSpan(text)
         val body = text.substring(span.start, span.endExclusive)
 
-        if (Smali.countOccurrences(text, HOOK_TARGET) != 1) {
-            failVerification("expected exactly one initSystemServer hook in class")
+        val totalHookCount = EXECUTABLE_HOOK.findAll(text).count()
+        if (totalHookCount != 1) {
+            failVerification("expected exactly one executable initSystemServer hook in class; found $totalHookCount")
         }
-        if (!body.contains(HOOK_CALL)) {
+        val hooks = EXECUTABLE_HOOK.findAll(body).toList()
+        if (hooks.isEmpty()) {
             failVerification("expected exact $HOOK_CALL in run()V")
         }
-        if (!body.contains(ANCHOR_CALL)) {
+        val anchors = EXECUTABLE_ANCHOR.findAll(body).toList()
+        if (anchors.isEmpty()) {
             failVerification("expected Looper.loop() in SystemServer.run()V")
         }
-        val pattern = Regex(
-            "\\s*" + Regex.escape(HOOK_CALL) +
-                "\\s*(?:\\r?\\n)+" +
-                "(?:(?!\\.end method).)*?" +
-                "\\s*" + Regex.escape(ANCHOR_CALL),
-            setOf(RegexOption.DOT_MATCHES_ALL)
-        )
-        if (!pattern.containsMatchIn(body)) {
+        if (hooks[0].range.first > anchors[0].range.first) {
             failVerification("hook must precede Looper.loop() in SystemServer.run()V")
         }
     }
@@ -64,7 +66,7 @@ object SystemServerPatch {
         val span = methodSpan(text)
         val body = text.substring(span.start, span.endExclusive)
 
-        if (body.contains(HOOK_TARGET)) {
+        if (EXECUTABLE_HOOK.containsMatchIn(body)) {
             verify(text)
             return PatchOutcome(PatchStatus.ALREADY_PATCHED, text)
         }

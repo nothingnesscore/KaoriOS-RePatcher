@@ -54,7 +54,20 @@ object ComputerEnginePatch {
         throw UnsupportedLayoutException("target ComputerEngine.shouldFilterApplication method not found")
     }
 
-    private fun hookCount(body: String): Int = Smali.countOccurrences(body, HOOK_TARGET)
+    private fun hookCount(body: String): Int = EXECUTABLE_HOOK.findAll(body).count()
+
+    /**
+     * An *executable* hook call — line-anchored, any operand list, no comment marker
+     * (upstream `EXECUTABLE_HOOK_RE`). Comment text never counts as a patch.
+     */
+    private val EXECUTABLE_HOOK = Regex(
+        "(?m)^[ \\t]*invoke-static(?:/range)?\\s*\\{[^}]*\\},\\s*" +
+            Regex.escape(HOOK_TARGET) + "[ \\t]*(?:#.*)?$"
+    )
+
+    /** Control-flow instructions that could route around the injected null checks (upstream `BRANCH_RE`). */
+    private val BRANCH =
+        Regex("(?m)^\\s*(goto(?:/16|/32)?|if-[\\w]+|packed-switch|sparse-switch)\\b")
 
     private fun highHook(paramCount: Int, oldBase: Int, scratch: Int, label: String, newline: String): String {
         val width = if (paramCount == 7) 8 else 4
@@ -206,23 +219,36 @@ object ComputerEnginePatch {
 
     private fun visibilityVerify(text: String) {
         val info = methodSpan(text)
-        val body = text.substring(info.span.start, info.span.endExclusive)
-        val stripped = DIRECTIVE_STRIP.replace(body, "")
-        val count = hookCount(stripped)
-        if (count != 1) {
-            failVerification("expected exactly one shouldHideAppListForCaller hook; found $count")
+        // Debug directives are stripped once, exactly as upstream's `_verify_visibility` does,
+        // and everything below runs on that text — a floated `.line` can neither hide the hook
+        // from the count nor break the structural patterns.
+        val body = DIRECTIVE_STRIP.replace(text.substring(info.span.start, info.span.endExclusive), "")
+        val hooks = EXECUTABLE_HOOK.findAll(body).toList()
+        if (hooks.size != 1) {
+            failVerification("expected exactly one shouldHideAppListForCaller hook; found ${hooks.size}")
         }
-        // Port of upstream `_verify_visibility` at 2bdca9a: the hook must sit between the
-        // register directive and the method's first terminating instruction, otherwise the
-        // insert is unreachable dead code a verifier pass would happily ship.
+        // Port of upstream `_verify_visibility` at 9a50d37: the hook must sit between the
+        // register directive and the method's first terminating instruction — otherwise the
+        // insert is unreachable dead code a verifier pass would happily ship — and nothing
+        // branchy may route around the injected null checks, or the guard it guards is dead.
         val directive = Regex("\\.(?:locals|registers)[ \\t]+\\d+").find(body)
             ?: failVerification("missing register directive for visibility hook")
-        val hookAt = body.indexOf(HOOK_TARGET)
-        if (hookAt > directive.range.last) {
-            val prefix = body.substring(directive.range.last + 1, hookAt)
-            if (Regex("(?m)^[ \\t]*(?:return(?:-\\w+)?|throw)\\b").containsMatchIn(prefix)) {
-                failVerification("hook must precede a terminating instruction")
+        val hook = hooks[0]
+        // Python's `body[directive.end():hook.start()]` is "" when the hook precedes the
+        // directive; mirror that so an inverted layout falls into the branch check below
+        // instead of throwing.
+        val prefix =
+            if (hook.range.first > directive.range.last + 1) {
+                body.substring(directive.range.last + 1, hook.range.first)
+            } else {
+                ""
             }
+        if (Regex("(?m)^\\s*(?:return(?:-[\\w]+)?|throw)\\b").containsMatchIn(prefix)) {
+            failVerification("hook must precede a terminating instruction")
+        }
+        val branches = BRANCH.findAll(prefix).map { it.groupValues[1] }.toList()
+        if (branches.size != 2 || branches.any { it != "if-eqz" }) {
+            failVerification("hook must not be bypassed by a branch before the injected null checks")
         }
         if (!body.contains(GET_PACKAGE_NAME_CALL)) {
             verifyHighRegister(body, info.paramCount)

@@ -18,6 +18,20 @@ object InstrumentationPatch {
     const val ANCHOR_LOADER =
         "newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;"
 
+    /**
+     * An *executable* initContext call — line-anchored, p-form operands, no comment marker
+     * (upstream `INSTRUMENTATION_HOOK_RE`). The idempotency check and the verifier's hook
+     * counts both run through it, so a commented-out hook can neither suppress a patch nor
+     * satisfy the verifier.
+     */
+    internal val HOOK_INVOKE = Regex(
+        "(?m)^[ \\t]*invoke-static(?:/range)?\\s*\\{p\\d+(?:\\s*\\.\\.\\s*p\\d+)?\\},\\s*" +
+            Regex.escape(HOOK_SIGNATURE) + "[ \\t]*(?:#.*)?$"
+    )
+
+    /** Line-anchored `return-object` (upstream `INSTRUMENTATION_RETURN_RE`). */
+    private val RETURN_LINE = Regex("(?m)^[ \\t]*return-object\\s+[vp]\\d+")
+
     private val DIRECTIVE = Regex("\\.(registers|locals)\\s+(\\d+)")
     private val RETURN_OBJECT = Regex("(return-object\\s+[vp]\\d+\\s*)")
     private val STATIC_HEADER = Regex("\\bstatic\\b")
@@ -35,7 +49,7 @@ object InstrumentationPatch {
         if (methodName.contains("Class;") && STATIC_HEADER.containsMatchIn(header)) {
             param = "p1"
         }
-        if (methodBody.contains(HOOK_SIGNATURE)) return text to false
+        if (HOOK_INVOKE.containsMatchIn(methodBody)) return text to false
 
         val matches = RETURN_OBJECT.findAll(methodBody).toList()
         if (matches.isEmpty()) throw UnsupportedLayoutException("return-object not found in $methodName")
@@ -86,10 +100,10 @@ object InstrumentationPatch {
     fun verify(content: String) {
         val body1 = bodyOf(content, ANCHOR_CLASS)
         val body2 = bodyOf(content, ANCHOR_LOADER)
-        val returns1 = RETURN_OBJECT.findAll(body1).count()
-        val returns2 = RETURN_OBJECT.findAll(body2).count()
-        val hooks1 = Regex(Regex.escape(HOOK_SIGNATURE)).findAll(body1).count()
-        val hooks2 = Regex(Regex.escape(HOOK_SIGNATURE)).findAll(body2).count()
+        val returns1 = RETURN_LINE.findAll(body1).count()
+        val returns2 = RETURN_LINE.findAll(body2).count()
+        val hooks1 = HOOK_INVOKE.findAll(body1).count()
+        val hooks2 = HOOK_INVOKE.findAll(body2).count()
 
         if (returns1 > 0 && hooks1 != returns1) {
             failVerification("Instrumentation: newApplication(Class,Context) expected $returns1 initContext hooks, found $hooks1")
@@ -106,11 +120,11 @@ object InstrumentationPatch {
         val classContext = if (STATIC_HEADER.containsMatchIn(classHeader)) "p1" else "p2"
         for ((body, contextReg) in listOf(body1 to classContext, body2 to "p3")) {
             val dominated = Regex(
-                "invoke-static(?:/range)?\\s*\\{" + Regex.escape(contextReg) +
+                "(?m)^[ \\t]*invoke-static(?:/range)?\\s*\\{" + Regex.escape(contextReg) +
                     "(?:\\s*\\.\\.\\s*" + Regex.escape(contextReg) + ")?\\},\\s*" +
-                    Regex.escape(HOOK_SIGNATURE) + "\\s*$"
+                    Regex.escape(HOOK_SIGNATURE) + "[ \\t]*(?:#.*)?\\s*\\Z"
             )
-            for (ret in RETURN_OBJECT.findAll(body)) {
+            for (ret in RETURN_LINE.findAll(body)) {
                 val preceding = body.substring(0, ret.range.first)
                 if (!dominated.containsMatchIn(preceding)) {
                     failVerification("Instrumentation: initContext must directly dominate each return with the Context parameter")

@@ -18,14 +18,17 @@ object KeyStoreGeneratorPatch {
      * The entry sequence the verifier requires, anchored at the first real instruction
      * (upstream's `re.match` over `body[entry:]`): hook, dedicated scratch, null check
      * routed to the stock label, and the label itself. The invoke must be the narrow or
-     * the exact self-range form — the conditional in upstream's pattern spells both out.
+     * the exact self-range form — the conditional in upstream's pattern spells both out —
+     * and debug directives (baksmali floats `.line` above the label on re-disassembly)
+     * are tolerated between the return and the label, as upstream is at `9a50d37`.
      */
     private val GENERATOR_SEQUENCE = Regex(
         "^\\s*(?:invoke-static/range\\s*\\{\\s*p0\\s*\\.\\.\\s*p0\\s*\\}|invoke-static\\s*\\{\\s*p0\\s*\\}),\\s*" +
             Regex.escape(HOOK_SIGNATURE) + "\\s+" +
             "move-result-object\\s+(?<scratch>v\\d+)\\s+" +
             "if-eqz\\s+\\k<scratch>,\\s*(?<label>:[\\w$]+)\\s+" +
-            "return-object\\s+\\k<scratch>\\s+" +
+            "return-object\\s+\\k<scratch>\\s*" +
+            "(?:\\.(?:line|local|end local|restart local)[^\\n]*\\n|\\s)*" +
             "\\k<label>\\s*"
     )
 
