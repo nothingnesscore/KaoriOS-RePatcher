@@ -53,7 +53,7 @@ HOS A17) the shapes are unproven — A13/A14/A16 jars have never been seen — b
 
 ```bash
 python tools\generate_oracle.py    # regenerate differential fixtures from the Python reference
-.\gradlew.bat :engine:jvmTest      # 166-test suite — mandatory before engine changes
+.\gradlew.bat :engine:jvmTest      # 173-test suite — mandatory before engine changes
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:assembleReleaseFast
 .\gradlew.bat build
@@ -109,6 +109,20 @@ caption. It needs two repository secrets — `TELEGRAM_BOT_TOKEN` (from @BotFath
 and skips with a notice when either is absent, so an unconfigured repo or a fork never
 fails a release over chat plumbing. The Bot API caps uploads at 50 MB; an APK outgrowing
 that would need an MTProto client instead.
+
+Before every release, check upstream's newest successful Actions runs (`build-toolbox.yml` /
+`build-framework.yml` in `hzzmonetvn/Kaorios-Toolbox`): the run summary publishes fresh
+`classes.dex`, `KaoriosFramework-release.apk` (the framework add-on that sits beside the
+toolbox APK in the run's dist) and `KaoriosToolbox-release.apk` on tmpfiles.org links that
+expire after 48 h. Those are unverified CI outputs — the runs log `unsigned release mode`
+because the keystore is user-held, and the workflow itself says to compare the dex hash
+against the release notes before using them — and the app cannot reach them on-device (the
+job-log API answers 403 unauthenticated; the links live only in the summaries). Ship only
+signed, verified inputs: the release-published `classes.dex` and
+`kaoriostoolbox-release_sign.apk`, which is what `ReleaseSync` and the bundled resource
+already use; report the CI-vs-release delta to the maintainer instead of consuming it
+(beta.16: CI dex `264ad94a…` / 578,772 B against released `ca9489…` / 578,768 B, CI toolbox
+and framework add-on unsigned).
 
 ## Architecture
 
@@ -316,10 +330,10 @@ adb logcat -s KaoriosPatcher
 `Toolbox-docs/V2.0.3+/Patch_Guide_2.0.6.1.md` (`framework.jar` §2-§6, `services.jar` §1-§3 and
 `Optional patches` §1-§2), `Disable_Secure_Flag.md`, and `CorePatch.md` §1-§3 — keyed by
 `GuideCheck.REVISION`, which names the upstream commit all three were read at (adding a table
-does not move it; re-reading the guides at a new commit does; it is `b045356` — re-read at the
-parity-audit head, target inventory unchanged: the guides gained a SettingsProvider bootloop
-warning and a payload-boundary note, both already true of this build; beta.10/11 shipped on
-`c645e64`, beta.12–14 on `2bdca9a`). It
+does not move it; re-reading the guides at a new commit does; it is `9a50d37` — re-read at the
+executable-hook hardening head, target inventory unchanged: the window moved only release
+checksum lines and the DSV insertion prose, both already true of this build; beta.10/11 shipped
+on `c645e64`, beta.12–14 on `2bdca9a`, beta.15 on `b045356`). It
 reports each expected file `ok` / `MISSING` / `REJECTED`, plus `absent` for the three sites the
 guides themselves let a ROM skip, and names the entries deliberately out of scope —
 `SettingsProvider.smali` (retired upstream at `8c752fd`; the guide says keep the stock
@@ -541,11 +555,12 @@ the current SAFE-TO-FLASH artifact (run19 was the previous one).
   leaf `aput` → provider `invoke` → `move-result` → `return-object`), leaving both keystore
   hooks unpatched and telling users to restore stock smali first; our engine pairs that shape on
   purpose (beta.13/14, pinned by `TrickyStoreKeystoreTest`) — the divergence is now documented
-  on both sides. The same audit flags two verifier gaps it leaves for later work —
-  `engineGetCertificate` delegation detected by text search anywhere in the method (an
-  unreachable frame after a stock return passes as patched) and SystemServer verification
-  checking only textual order before `Looper.loop()` — treat a future upstream tightening as
-  port work rather than changing ours independently.
+on both sides. The same audit flagged two verifier gaps; upstream tightened the SystemServer one
+at `dfca2d8` (an executable, line-anchored hook before `Looper.loop()` instead of textual order
+anywhere in the class) and that port landed with the `b045356..9a50d37` window. The other —
+`engineGetCertificate` delegation detected by text search anywhere in the method (an
+unreachable frame after a stock return passes as patched) — is still open upstream; treat a
+future tightening as port work rather than changing ours independently.
 
 ### Hide App List — root cause and the `AppsFilterBase` target
 

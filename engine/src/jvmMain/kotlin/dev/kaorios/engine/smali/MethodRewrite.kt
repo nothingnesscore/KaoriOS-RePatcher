@@ -166,8 +166,11 @@ object MethodRewrite {
      *
      * `PackageManagerPatch` already ships this shape — instructions before `.param` assemble,
      * because `DexArchiveRoundTrip.rebuild` is the assembler and a build that rejected them threw
-     * on device — and both guides specify "below `.registers X`" for the same reason: no local is
-     * live yet at method entry.
+     * on device — and no local is live yet at method entry. Both guides word the entry point as
+     * "after `.registers`/`.locals` and any `.param`/`.annotation` metadata" (`Disable_Secure_Flag.md`
+     * aligned at `bb1375c`); splicing above the metadata assembles the same method either way, and
+     * a re-disassembly floats `.param` back above the hook, which `SecureFlagPatch`'s header strip
+     * accepts.
      */
     fun injectAtEntry(
         method: String,

@@ -23,12 +23,12 @@ object GuideCheck {
 
     /**
      * Upstream revision this table was re-read at; bump it whenever the guide is re-read.
-     * Re-read at b045356 (the parity-audit head) — target inventory unchanged; the guides
-     * gained a SettingsProvider bootloop warning (we never patch the provider) and a
-     * payload-boundary note (we never install a Phenotype caller), plus checksum text for
-     * the current release dex/zip.
+     * Re-read at 9a50d37 — target inventory unchanged: the `b045356..9a50d37` window only
+     * moved the release checksum lines (dex `ca9489f3…`, zip `3e0e761a…`) and the DSV
+     * insertion prose ("after `.registers`/`.locals` and any `.param`/`.annotation`
+     * metadata" — the point our injector already used).
      */
-    const val REVISION = "b045356"
+    const val REVISION = "9a50d37"
 
     /** Guide `framework.jar` §2-§6, in guide order. §1 is the payload import, not a smali target. */
     private val FRAMEWORK_HOOKS = listOf(
